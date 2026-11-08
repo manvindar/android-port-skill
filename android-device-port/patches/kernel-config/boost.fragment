@@ -1,0 +1,4 @@
+# "Boost" version: touch boost in the kernel (boost/input_boost_m30s.c). CPU/GPU clock limits are NOT raised: see README.
+CONFIG_INPUT_BOOST_M30S=y
+
+CONFIG_LOCALVERSION="-a17-boost"

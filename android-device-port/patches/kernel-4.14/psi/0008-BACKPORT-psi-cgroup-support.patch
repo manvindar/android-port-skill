@@ -1,0 +1,479 @@
+From edd6f9faedd2467c4d78ba5b64f82e2adc28a57a Mon Sep 17 00:00:00 2001
+From: Johannes Weiner <hannes@cmpxchg.org>
+Date: Fri, 26 Oct 2018 15:06:31 -0700
+Subject: [PATCH] BACKPORT: psi: cgroup support
+
+On a system that executes multiple cgrouped jobs and independent
+workloads, we don't just care about the health of the overall system, but
+also that of individual jobs, so that we can ensure individual job health,
+fairness between jobs, or prioritize some jobs over others.
+
+This patch implements pressure stall tracking for cgroups.  In kernels
+with CONFIG_PSI=y, cgroup2 groups will have cpu.pressure, memory.pressure,
+and io.pressure files that track aggregate pressure stall times for only
+the tasks inside the cgroup.
+
+Link: http://lkml.kernel.org/r/20180828172258.3185-10-hannes@cmpxchg.org
+Signed-off-by: Johannes Weiner <hannes@cmpxchg.org>
+Acked-by: Tejun Heo <tj@kernel.org>
+Acked-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Tested-by: Daniel Drake <drake@endlessm.com>
+Tested-by: Suren Baghdasaryan <surenb@google.com>
+Cc: Christopher Lameter <cl@linux.com>
+Cc: Ingo Molnar <mingo@redhat.com>
+Cc: Johannes Weiner <jweiner@fb.com>
+Cc: Mike Galbraith <efault@gmx.de>
+Cc: Peter Enderborg <peter.enderborg@sony.com>
+Cc: Randy Dunlap <rdunlap@infradead.org>
+Cc: Shakeel Butt <shakeelb@google.com>
+Cc: Vinayak Menon <vinmenon@codeaurora.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+
+(cherry picked from commit 2ce7135adc9ad081aa3c49744144376ac74fea60)
+
+Conflicts:
+        Documentation/cgroup-v2.txt
+        include/linux/psi.h
+        kernel/cgroup/cgroup.c
+
+(1. manual merge from Documentation/admin-guide/cgroup-v2.rst
+2. include <linux/cgroup-defs.h> into include/linux/psi.h
+3. manual merge in css_free_work_fn to allow psi support only for cgroup v2
+4. manual merge in cgroup_create to allow psi support only for cgroup v2)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: I163e6657aaa60aa5aab9372616a3bce2a65e90ec
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/Documentation/accounting/psi.txt b/Documentation/accounting/psi.txt
+index 3753a82f1cf..b8ca28b6021 100644
+--- a/Documentation/accounting/psi.txt
++++ b/Documentation/accounting/psi.txt
+@@ -62,3 +62,12 @@ well as medium and long term trends. The total absolute stall time is
+ tracked and exported as well, to allow detection of latency spikes
+ which wouldn't necessarily make a dent in the time averages, or to
+ average trends over custom time frames.
++
++Cgroup2 interface
++=================
++
++In a system with a CONFIG_CGROUP=y kernel and the cgroup2 filesystem
++mounted, pressure stall information is also tracked for tasks grouped
++into cgroups. Each subdirectory in the cgroupfs mountpoint contains
++cpu.pressure, memory.pressure, and io.pressure files; the format is
++the same as the /proc/pressure/ files.
+diff --git a/Documentation/cgroup-v2.txt b/Documentation/cgroup-v2.txt
+index dc44785dc0f..7e367281251 100644
+--- a/Documentation/cgroup-v2.txt
++++ b/Documentation/cgroup-v2.txt
+@@ -958,6 +958,12 @@ All time durations are in microseconds.
+ 	$PERIOD duration.  If only one number is written, $MAX is
+ 	updated.
+ 
++  cpu.pressure
++	A read-only nested-key file which exists on non-root cgroups.
++
++	Shows pressure stall information for CPU. See
++	Documentation/accounting/psi.txt for details.
++
+ 
+ Memory
+ ------
+@@ -1194,6 +1200,12 @@ PAGE_SIZE multiple when read back.
+ 	Swap usage hard limit.  If a cgroup's swap usage reaches this
+ 	limit, anonymous meomry of the cgroup will not be swapped out.
+ 
++  memory.pressure
++	A read-only nested-key file which exists on non-root cgroups.
++
++	Shows pressure stall information for memory. See
++	Documentation/accounting/psi.txt for details.
++
+ 
+ Usage Guidelines
+ ~~~~~~~~~~~~~~~~
+@@ -1329,6 +1341,12 @@ IO Interface Files
+ 
+ 	  8:16 rbps=2097152 wbps=max riops=max wiops=max
+ 
++  io.pressure
++	A read-only nested-key file which exists on non-root cgroups.
++
++	Shows pressure stall information for IO. See
++	Documentation/accounting/psi.txt for details.
++
+ 
+ Writeback
+ ~~~~~~~~~
+diff --git a/include/linux/cgroup-defs.h b/include/linux/cgroup-defs.h
+index e7905d9353e..f113ebd940e 100644
+--- a/include/linux/cgroup-defs.h
++++ b/include/linux/cgroup-defs.h
+@@ -19,6 +19,7 @@
+ #include <linux/percpu-rwsem.h>
+ #include <linux/workqueue.h>
+ #include <linux/bpf-cgroup.h>
++#include <linux/psi_types.h>
+ 
+ #ifdef CONFIG_CGROUPS
+ 
+@@ -368,6 +369,9 @@ struct cgroup {
+ 	/* used to schedule release agent */
+ 	struct work_struct release_agent_work;
+ 
++	/* used to track pressure stalls */
++	struct psi_group psi;
++
+ 	/* used to store eBPF programs */
+ 	struct cgroup_bpf bpf;
+ 
+diff --git a/include/linux/cgroup.h b/include/linux/cgroup.h
+index dddbc29e200..28a1a067da5 100644
+--- a/include/linux/cgroup.h
++++ b/include/linux/cgroup.h
+@@ -626,6 +626,11 @@ static inline void pr_cont_cgroup_path(struct cgroup *cgrp)
+ 	pr_cont_kernfs_path(cgrp->kn);
+ }
+ 
++static inline struct psi_group *cgroup_psi(struct cgroup *cgrp)
++{
++	return &cgrp->psi;
++}
++
+ static inline void cgroup_init_kthreadd(void)
+ {
+ 	/*
+@@ -679,6 +684,16 @@ static inline union kernfs_node_id *cgroup_get_kernfs_id(struct cgroup *cgrp)
+ 	return NULL;
+ }
+ 
++static inline struct cgroup *cgroup_parent(struct cgroup *cgrp)
++{
++	return NULL;
++}
++
++static inline struct psi_group *cgroup_psi(struct cgroup *cgrp)
++{
++	return NULL;
++}
++
+ static inline bool task_under_cgroup_hierarchy(struct task_struct *task,
+ 					       struct cgroup *ancestor)
+ {
+diff --git a/include/linux/psi.h b/include/linux/psi.h
+index b0daf050de5..3d759c00df7 100644
+--- a/include/linux/psi.h
++++ b/include/linux/psi.h
+@@ -3,6 +3,10 @@
+ 
+ #include <linux/psi_types.h>
+ #include <linux/sched.h>
++#include <linux/cgroup-defs.h>
++
++struct seq_file;
++struct css_set;
+ 
+ #ifdef CONFIG_PSI
+ 
+@@ -16,6 +20,14 @@ void psi_memstall_tick(struct task_struct *task, int cpu);
+ void psi_memstall_enter(unsigned long *flags);
+ void psi_memstall_leave(unsigned long *flags);
+ 
++int psi_show(struct seq_file *s, struct psi_group *group, enum psi_res res);
++
++#ifdef CONFIG_CGROUPS
++int psi_cgroup_alloc(struct cgroup *cgrp);
++void psi_cgroup_free(struct cgroup *cgrp);
++void cgroup_move_task(struct task_struct *p, struct css_set *to);
++#endif
++
+ #else /* CONFIG_PSI */
+ 
+ static inline void psi_init(void) {}
+@@ -23,6 +35,20 @@ static inline void psi_init(void) {}
+ static inline void psi_memstall_enter(unsigned long *flags) {}
+ static inline void psi_memstall_leave(unsigned long *flags) {}
+ 
++#ifdef CONFIG_CGROUPS
++static inline int psi_cgroup_alloc(struct cgroup *cgrp)
++{
++	return 0;
++}
++static inline void psi_cgroup_free(struct cgroup *cgrp)
++{
++}
++static inline void cgroup_move_task(struct task_struct *p, struct css_set *to)
++{
++	rcu_assign_pointer(p->cgroups, to);
++}
++#endif
++
+ #endif /* CONFIG_PSI */
+ 
+ #endif /* _LINUX_PSI_H */
+diff --git a/init/Kconfig b/init/Kconfig
+index 9c6c93b319a..418af46f5d6 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -490,6 +490,10 @@ config PSI
+ 	  the share of walltime in which some or all tasks in the system are
+ 	  delayed due to contention of the respective resource.
+ 
++	  In kernels with cgroup support, cgroups (cgroup2 only) will
++	  have cpu.pressure, memory.pressure, and io.pressure files,
++	  which aggregate pressure stalls for the grouped tasks only.
++
+ 	  For more details see Documentation/accounting/psi.txt.
+ 
+ 	  Say N if unsure.
+diff --git a/kernel/cgroup/cgroup.c b/kernel/cgroup/cgroup.c
+index 21bbfc09e39..1742c6e1c1b 100644
+--- a/kernel/cgroup/cgroup.c
++++ b/kernel/cgroup/cgroup.c
+@@ -54,6 +54,7 @@
+ #include <linux/proc_ns.h>
+ #include <linux/nsproxy.h>
+ #include <linux/file.h>
++#include <linux/psi.h>
+ #include <net/sock.h>
+ 
+ #define CREATE_TRACE_POINTS
+@@ -794,7 +795,7 @@ static void css_set_move_task(struct task_struct *task,
+ 		 */
+ 		WARN_ON_ONCE(task->flags & PF_EXITING);
+ 
+-		rcu_assign_pointer(task->cgroups, to_cset);
++		cgroup_move_task(task, to_cset);
+ 		list_add_tail(&task->cg_list, use_mg_tasks ? &to_cset->mg_tasks :
+ 							     &to_cset->tasks);
+ 	}
+@@ -3329,6 +3330,21 @@ static int cgroup_stat_show(struct seq_file *seq, void *v)
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_PSI
++static int cgroup_io_pressure_show(struct seq_file *seq, void *v)
++{
++	return psi_show(seq, &seq_css(seq)->cgroup->psi, PSI_IO);
++}
++static int cgroup_memory_pressure_show(struct seq_file *seq, void *v)
++{
++	return psi_show(seq, &seq_css(seq)->cgroup->psi, PSI_MEM);
++}
++static int cgroup_cpu_pressure_show(struct seq_file *seq, void *v)
++{
++	return psi_show(seq, &seq_css(seq)->cgroup->psi, PSI_CPU);
++}
++#endif
++
+ static int cgroup_file_open(struct kernfs_open_file *of)
+ {
+ 	struct cftype *cft = of->kn->priv;
+@@ -4439,6 +4455,23 @@ static struct cftype cgroup_base_files[] = {
+ 		.name = "cgroup.stat",
+ 		.seq_show = cgroup_stat_show,
+ 	},
++#ifdef CONFIG_PSI
++	{
++		.name = "io.pressure",
++		.flags = CFTYPE_NOT_ON_ROOT,
++		.seq_show = cgroup_io_pressure_show,
++	},
++	{
++		.name = "memory.pressure",
++		.flags = CFTYPE_NOT_ON_ROOT,
++		.seq_show = cgroup_memory_pressure_show,
++	},
++	{
++		.name = "cpu.pressure",
++		.flags = CFTYPE_NOT_ON_ROOT,
++		.seq_show = cgroup_cpu_pressure_show,
++	},
++#endif
+ 	{ }	/* terminate */
+ };
+ 
+@@ -4499,6 +4532,8 @@ static void css_free_work_fn(struct work_struct *work)
+ 			 */
+ 			cgroup_put(cgroup_parent(cgrp));
+ 			kernfs_put(cgrp->kn);
++			if (cgroup_on_dfl(cgrp))
++				psi_cgroup_free(cgrp);
+ 			kfree(cgrp);
+ 		} else {
+ 			/*
+@@ -4775,6 +4810,12 @@ static struct cgroup *cgroup_create(struct cgroup *parent)
+ 	if (!cgroup_on_dfl(cgrp))
+ 		cgrp->subtree_control = cgroup_control(cgrp);
+ 
++	if (cgroup_on_dfl(cgrp)) {
++		ret = psi_cgroup_alloc(cgrp);
++		if (ret)
++			goto out_idr_free;
++	}
++
+ 	if (parent)
+ 		cgroup_bpf_inherit(cgrp, parent);
+ 
+@@ -4782,6 +4823,8 @@ static struct cgroup *cgroup_create(struct cgroup *parent)
+ 
+ 	return cgrp;
+ 
++out_idr_free:
++	cgroup_idr_remove(&root->cgroup_idr, cgrp->id);
+ out_cancel_ref:
+ 	percpu_ref_exit(&cgrp->self.refcnt);
+ out_free_cgrp:
+diff --git a/kernel/sched/psi.c b/kernel/sched/psi.c
+index 595414599b9..7cdecfc010a 100644
+--- a/kernel/sched/psi.c
++++ b/kernel/sched/psi.c
+@@ -473,9 +473,35 @@ static void psi_group_change(struct psi_group *group, int cpu,
+ 		schedule_delayed_work(&group->clock_work, PSI_FREQ);
+ }
+ 
++static struct psi_group *iterate_groups(struct task_struct *task, void **iter)
++{
++#ifdef CONFIG_CGROUPS
++	struct cgroup *cgroup = NULL;
++
++	if (!*iter)
++		cgroup = task->cgroups->dfl_cgrp;
++	else if (*iter == &psi_system)
++		return NULL;
++	else
++		cgroup = cgroup_parent(*iter);
++
++	if (cgroup && cgroup_parent(cgroup)) {
++		*iter = cgroup;
++		return cgroup_psi(cgroup);
++	}
++#else
++	if (*iter)
++		return NULL;
++#endif
++	*iter = &psi_system;
++	return &psi_system;
++}
++
+ void psi_task_change(struct task_struct *task, int clear, int set)
+ {
+ 	int cpu = task_cpu(task);
++	struct psi_group *group;
++	void *iter = NULL;
+ 
+ 	if (!task->pid)
+ 		return;
+@@ -492,17 +518,23 @@ void psi_task_change(struct task_struct *task, int clear, int set)
+ 	task->psi_flags &= ~clear;
+ 	task->psi_flags |= set;
+ 
+-	psi_group_change(&psi_system, cpu, clear, set);
++	while ((group = iterate_groups(task, &iter)))
++		psi_group_change(group, cpu, clear, set);
+ }
+ 
+ void psi_memstall_tick(struct task_struct *task, int cpu)
+ {
+-	struct psi_group_cpu *groupc;
++	struct psi_group *group;
++	void *iter = NULL;
+ 
+-	groupc = per_cpu_ptr(psi_system.pcpu, cpu);
+-	write_seqcount_begin(&groupc->seq);
+-	record_times(groupc, cpu, true);
+-	write_seqcount_end(&groupc->seq);
++	while ((group = iterate_groups(task, &iter))) {
++		struct psi_group_cpu *groupc;
++
++		groupc = per_cpu_ptr(group->pcpu, cpu);
++		write_seqcount_begin(&groupc->seq);
++		record_times(groupc, cpu, true);
++		write_seqcount_end(&groupc->seq);
++	}
+ }
+ 
+ /**
+@@ -565,8 +597,78 @@ void psi_memstall_leave(unsigned long *flags)
+ 	rq_unlock_irq(rq, &rf);
+ }
+ 
+-static int psi_show(struct seq_file *m, struct psi_group *group,
+-		    enum psi_res res)
++#ifdef CONFIG_CGROUPS
++int psi_cgroup_alloc(struct cgroup *cgroup)
++{
++	if (psi_disabled)
++		return 0;
++
++	cgroup->psi.pcpu = alloc_percpu(struct psi_group_cpu);
++	if (!cgroup->psi.pcpu)
++		return -ENOMEM;
++	group_init(&cgroup->psi);
++	return 0;
++}
++
++void psi_cgroup_free(struct cgroup *cgroup)
++{
++	if (psi_disabled)
++		return;
++
++	cancel_delayed_work_sync(&cgroup->psi.clock_work);
++	free_percpu(cgroup->psi.pcpu);
++}
++
++/**
++ * cgroup_move_task - move task to a different cgroup
++ * @task: the task
++ * @to: the target css_set
++ *
++ * Move task to a new cgroup and safely migrate its associated stall
++ * state between the different groups.
++ *
++ * This function acquires the task's rq lock to lock out concurrent
++ * changes to the task's scheduling state and - in case the task is
++ * running - concurrent changes to its stall state.
++ */
++void cgroup_move_task(struct task_struct *task, struct css_set *to)
++{
++	bool move_psi = !psi_disabled;
++	unsigned int task_flags = 0;
++	struct rq_flags rf;
++	struct rq *rq;
++
++	if (move_psi) {
++		rq = task_rq_lock(task, &rf);
++
++		if (task_on_rq_queued(task))
++			task_flags = TSK_RUNNING;
++		else if (task->in_iowait)
++			task_flags = TSK_IOWAIT;
++
++		if (task->flags & PF_MEMSTALL)
++			task_flags |= TSK_MEMSTALL;
++
++		if (task_flags)
++			psi_task_change(task, task_flags, 0);
++	}
++
++	/*
++	 * Lame to do this here, but the scheduler cannot be locked
++	 * from the outside, so we move cgroups from inside sched/.
++	 */
++	rcu_assign_pointer(task->cgroups, to);
++
++	if (move_psi) {
++		if (task_flags)
++			psi_task_change(task, 0, task_flags);
++
++		task_rq_unlock(rq, task, &rf);
++	}
++}
++#endif /* CONFIG_CGROUPS */
++
++int psi_show(struct seq_file *m, struct psi_group *group, enum psi_res res)
+ {
+ 	int full;
+ 

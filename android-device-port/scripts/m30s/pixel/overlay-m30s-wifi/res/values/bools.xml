@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Pixel Wi-Fi resources default config_wifi5ghzSupport to false (OEMs set it); the Samsung vendor overlay only sets the softap channel lists. With it false the framework drops the 5 GHz band from the hotspot capability and Settings says "5 GHz is not available in your country or region" even though the driver offers ch149-165 in CA. The phone (Exynos 9611 / SLSI wlbt) does 5 GHz. -->
+<resources>
+    <bool name="config_wifi5ghzSupport">true</bool>
+    <!-- The vendor hostapd (Android 10 HIDL 1.0) cannot do ACS on 5 GHz: with channel 0 and band 5 GHz it logs "Failed to create config params" and addAccessPoint fails (2.4 GHz ACS works). Without ACS the framework picks the channel itself from the Samsung channel lists (2.4 GHz: 1-11, 5 GHz: 149); the SLSI driver moves the AP onto the client Wi-Fi channel anyway. -->
+    <bool name="config_wifi_softap_acs_supported">false</bool>
+</resources>

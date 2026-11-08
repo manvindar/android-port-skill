@@ -1,0 +1,11 @@
+diff --git a/include/linux/thread_info.h b/include/linux/thread_info.h
+--- a/include/linux/thread_info.h
++++ b/include/linux/thread_info.h
+@@ -10,6 +10,7 @@
+ #include <linux/types.h>
+ #include <linux/bug.h>
+ #include <linux/errno.h>
++#include <linux/restart_block.h>
+ 
+ struct timespec;
+ struct compat_timespec;

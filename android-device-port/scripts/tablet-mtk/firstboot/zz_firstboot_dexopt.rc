@@ -1,0 +1,9 @@
+service firstboot_dexopt /system/bin/sh /system/bin/firstboot_dexopt.sh
+    user root
+    group root
+    seclabel u:r:init:s0
+    disabled
+    oneshot
+
+on property:sys.boot_completed=1
+    start firstboot_dexopt

@@ -1,0 +1,53 @@
+From 8abcc2a17ecc79052ccb6ec0da427809c2160dcb Mon Sep 17 00:00:00 2001
+From: Johannes Weiner <hannes@cmpxchg.org>
+Date: Fri, 1 Feb 2019 14:21:15 -0800
+Subject: [PATCH] UPSTREAM: psi: clarify the Kconfig text for the
+ default-disable option
+
+The current help text caused some confusion in online forums about
+whether or not to default-enable or default-disable psi in vendor
+kernels.  This is because it doesn't communicate the reason for why we
+made this setting configurable in the first place: that the overhead is
+non-zero in an artificial scheduler stress test.
+
+Since this isn't representative of real workloads, and the effect was
+not measurable in scheduler-heavy real world applications such as the
+webservers and memcache installations at Facebook, it's fair to point
+out that this is a pretty cautious option to select.
+
+Link: http://lkml.kernel.org/r/20190129233617.16767-1-hannes@cmpxchg.org
+Signed-off-by: Johannes Weiner <hannes@cmpxchg.org>
+Reviewed-by: Andrew Morton <akpm@linux-foundation.org>
+Cc: Mel Gorman <mgorman@techsingularity.net>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+
+(cherry picked from commit 7b2489d37e1e355228f7c55724f77580e1dec22a)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: I5d0cb901562fd74c82d9d211544745b802776d8a
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/init/Kconfig b/init/Kconfig
+index d58ade72b7d..41053e87d14 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -507,6 +507,17 @@ config PSI_DEFAULT_DISABLED
+ 	  per default but can be enabled through passing psi=1 on the
+ 	  kernel commandline during boot.
+ 
++	  This feature adds some code to the task wakeup and sleep
++	  paths of the scheduler. The overhead is too low to affect
++	  common scheduling-intense workloads in practice (such as
++	  webservers, memcache), but it does show up in artificial
++	  scheduler stress tests, such as hackbench.
++
++	  If you are paranoid and not sure what the kernel will be
++	  used for, say Y.
++
++	  Say N if unsure.
++
+ endmenu # "CPU/Task time and stats accounting"
+ 
+ source "kernel/rcu/Kconfig"

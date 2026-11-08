@@ -1,0 +1,216 @@
+name: Build image
+
+# Builds the Android 17 + Pixel image for the Galaxy M30s (SM-M307F) and, with publish=true, publishes it as a PRIVATE release.
+# This repo must stay private: the image holds Google's Pixel apps and Samsung's stock vendor.
+#
+# Public inputs are downloaded here (Google GSI, LineageOS donor, crDroid A14 GSI, Pixel 9a factory image, MindTheGapps). Private inputs come from the release tagged "inputs" of this repo:
+#   vendor-mp2.img      stock vendor with the audio/mpeg-L2 codec type removed (tools/img/build_a14.sh does that from the firmware vendor.img)
+#   boot.img            stock Samsung boot image of the firmware (the kernel Image is swapped in)
+#   vbmeta-disabled.img 4 KiB vbmeta with verification disabled
+#   kernel-<tag>.Image, kernel-<tag>.SHA256SUMS   mirror of the m30s-kernel release assets, used only when the secret M30S_KERNEL_TOKEN (read access to manvindar/m30s-kernel) is not set
+# The kernel is never built here: it is the newest "kernel-*" release of manvindar/m30s-kernel (or inputs.kernel_tag).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag when publishing
+        default: v0.1-img
+      publish:
+        description: Publish a private release with the image
+        type: boolean
+        default: false
+      kernel_tag:
+        description: m30s-kernel release tag (empty = the newest kernel-* release)
+        default: ''
+      dev_tools:
+        description: Build with the debug helpers (boot_watchdog, bootdiag, dbgprobe), as the image on the phone
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  GSI_URL: https://dl.google.com/developers/android/cinnamonbun/images/gsi/aosp_arm64-exp-DP11.261016.003-16708287-d735a3b1.zip
+  GSI_ZIP_SHA256: d735a3b11fe1b76a736f325f5500f7211167642fe2ed39dae0cf530d1cf51436
+  DONOR_URL: https://sourceforge.net/projects/misterztr-gsi/files/LineageOS/Android%2016/LineageOS-23.2-20260524-GAPPS-EXT4-GSI.7z/download
+  DONOR_7Z_SHA256: 22b3c069445cc3d54819361a1636f7b27ff455dc547f300b868cecddb1b2e22d
+  DONOR_IMG: LineageOS-23.2-20260524-GAPPS-EXT4-GSI.img
+  CRDROID_URL: https://github.com/naz664/crDroid_gsi/releases/download/v2025.03.08/crDroid-10.13-arm64_bgN-slim-Unofficial.img.xz
+  CRDROID_SHA256: 0a403c4de120adbb15e7219f7c2acc59337e6d7fc995eaf4ace7e9267e25a0dc
+  FACTORY_URL: https://dl.google.com/developers/android/cinnamonbun/images/factory/tegu_beta-dp11.261016.003-factory-50ec463b.zip
+  FACTORY_SHA256: 50ec463b0fd404cbd98b9f201b3694246d4aa5f86d7e93719da6e0288de6c703
+  GAPPS_TAG: MindTheGapps-16.0.0-arm64-20261023_034858
+  TABLET_REF: 44cde4e25a160d95900ad12e3415b5527792be06   # tb-x606v-android17 branch exp/pixel-tablet (last pushed commit): patch library (tools/) and the public AOSP platform test keys
+  VENDOR_MP2_SHA256: 285a28cc6785a25eb208d98ed9d387b2f345597c46e92403f42cbdf25dc113f9
+  BOOT_SHA256: d788f41397481fd7990ece136460edc1b62bac35c73bc4eda1593bdb50704c65
+  VBMETA_SHA256: fe1f4b55088fbc97040bc898d8b076f93c93e203c8ba7a15c8348080351f4ca2
+  NDK_VERSION: 26.1.10909125
+  SYSTEM_BYTES: '5033164800'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Patch library (tb-x606v-android17)
+        uses: actions/checkout@v7
+        with:
+          repository: manvindar/tb-x606v-android17
+          ref: ${{ env.TABLET_REF }}
+          path: tablet
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/share/powershell
+          sudo mkdir -p /usr/local/lib/android && sudo chown -R "$USER" /usr/local/lib/android   # setup-android installs there as the runner user
+          df -h /
+
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.12' }
+
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.14.1 }
+
+      - uses: actions/setup-java@v6
+        with: { distribution: temurin, java-version: '17' }
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs erofs-utils p7zip-full xz-utils zip unzip openssl
+          pip install capstone pyelftools lz4
+          sdkmanager "build-tools;35.0.0" "platforms;android-34" "ndk;${NDK_VERSION}"
+          debugfs -V; fsck.erofs --help 2>&1 | head -1
+          echo "BT=$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Private inputs (release "inputs" of this repo)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download inputs -p vendor-mp2.img -p boot.img -p vbmeta-disabled.img
+          echo "$VENDOR_MP2_SHA256  vendor-mp2.img" | sha256sum -c -
+          echo "$BOOT_SHA256  boot.img" | sha256sum -c -
+          echo "$VBMETA_SHA256  vbmeta-disabled.img" | sha256sum -c -
+
+      - name: Google's Android 17 GSI
+        run: |
+          curl -L --fail --retry 5 --retry-delay 10 -o gsi.zip "$GSI_URL"
+          echo "$GSI_ZIP_SHA256  gsi.zip" | sha256sum -c -
+          unzip -o -q gsi.zip system.img && rm gsi.zip
+          ls -la system.img
+
+      - name: LineageOS 23.2 GSI (audio donor)
+        run: |
+          curl -L --fail --retry 5 --retry-delay 10 -o donor.7z "$DONOR_URL"
+          echo "$DONOR_7Z_SHA256  donor.7z" | sha256sum -c -
+          7z x -y donor.7z "$DONOR_IMG" && rm donor.7z
+          ls -la "$DONOR_IMG"
+
+      - name: Android 14 first stage bundle and VNDK v30 (crDroid 10.13 GSI)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # upstream asset answers HTTP 504 (2026-11-08): fall back to the mirror release of this repo (same file, same sha256 below)
+          curl -L --fail --retry 2 --retry-delay 10 -o crdroid.img.xz "$CRDROID_URL" || gh release download inputs-crdroid-10.13 -R "$GITHUB_REPOSITORY" -p crdroid.img.xz --clobber
+          echo "$CRDROID_SHA256  crdroid.img.xz" | sha256sum -c -
+          xz -dc crdroid.img.xz > crdroid.img && rm crdroid.img.xz
+          mkdir vndk30
+          debugfs -R 'dump /system/system_ext/apex/com.android.vndk.v30.apex vndk30/com.android.vndk.v30.apex' crdroid.img
+          debugfs -R 'dump /system/etc/selinux/mapping/30.0.cil vndk30/30.0.cil' crdroid.img
+          debugfs -R 'dump /system/etc/selinux/mapping/30.0.compat.cil vndk30/30.0.compat.cil' crdroid.img
+          ls -la vndk30
+          python3 tools/img/make_a14fs.py crdroid.img a14fs tablet/tools
+          rm crdroid.img; df -h /
+
+      - name: Pixel 9a pieces from Google's factory image
+        run: |
+          curl -L --fail --retry 5 --retry-delay 10 -o factory.zip "$FACTORY_URL"
+          echo "$FACTORY_SHA256  factory.zip" | sha256sum -c -
+          python3 tools/pixel/stage_pixel_phone.py factory.zip pixel_stage --keys tablet/tools/pixel --build-tools "$BT"
+          rm factory.zip; du -sh pixel_stage; df -h /
+
+      - name: MindTheGapps
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir gapps && cd gapps
+          gh release download "$GAPPS_TAG" -R MindTheGapps/16.0.0-arm64 -p '*.zip' -p '*.sha256sum'
+          sha256sum -c *.sha256sum
+
+      - name: Vendor image
+        run: python3 tools/img/build_vendor_a17.py vendor-mp2.img vendor-a17.img tablet/tools/health/vintf_health_aidl.xml
+
+      - name: System image
+        env:
+          DEV_TOOLS: ${{ inputs.dev_tools }}
+        run: |
+          export A17_TOOLS="$PWD/tablet/tools"
+          DEV=""; [ "$DEV_TOOLS" = true ] && DEV="--dev-tools"
+          python3 tools/img/build_a17.py --gsi system.img --donor "$DONOR_IMG" --vndk-dir vndk30 --a14fs a14fs \
+            --pixel-phone pixel_stage --gapps gapps/*.zip $DEV --build-tools "$BT" --out system-a17-pixel.img
+          rm -rf system.img "$DONOR_IMG" pixel_stage; ls -la *.img; df -h /
+
+      - name: Kernel image from the m30s-kernel release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KTOKEN: ${{ secrets.M30S_KERNEL_TOKEN }}
+          KERNEL_TAG_IN: ${{ inputs.kernel_tag }}
+        run: |
+          TAG="$KERNEL_TAG_IN"; mkdir kernel
+          if [ -n "$KTOKEN" ]; then
+            export GH_TOKEN="$KTOKEN"
+            [ -n "$TAG" ] || TAG=$(gh release list -R manvindar/m30s-kernel --limit 50 --json tagName,publishedAt -q '[.[]|select(.tagName|startswith("kernel-"))]|sort_by(.publishedAt)|last|.tagName')
+            gh release download "$TAG" -R manvindar/m30s-kernel -p Image -p SHA256SUMS -D kernel
+          else
+            [ -n "$TAG" ] || TAG=$(gh release view inputs --json assets -q '.assets[].name' | sed -n 's/^\(kernel-.*\)\.Image$/\1/p' | sort -V | tail -1)
+            [ -n "$TAG" ] || { echo "no kernel mirrored in the inputs release and M30S_KERNEL_TOKEN is not set"; exit 1; }
+            for f in Image SHA256SUMS; do gh release download inputs -p "$TAG.$f" -O "kernel/$f"; done
+          fi
+          echo "KERNEL_TAG=$TAG" >> "$GITHUB_ENV"
+          WANT=$(awk '$2=="Image"{print $1}' kernel/SHA256SUMS); echo "$WANT  kernel/Image" | sha256sum -c -
+          python3 tools/img/repack_boot.py boot.img kernel/Image boot-a17.img   # the repo's copy: the one in the baseline release is older and cannot place the larger Image before Samsung's trailer
+          sha256sum boot-a17.img
+
+      - name: Check the images
+        run: |
+          [ "$(stat -c %s system-a17-pixel.img)" = "$SYSTEM_BYTES" ]
+          [ "$(stat -c %s vendor-a17.img)" = 629145600 ]
+          e2fsck -fn system-a17-pixel.img
+          e2fsck -fn vendor-a17.img
+          debugfs -R 'stat /system/etc/init/03_zram.rc' system-a17-pixel.img | head -1
+          [ "$(debugfs -R 'cat /system/etc/selinux/plat_sepolicy.cil' system-a17-pixel.img | grep -c m30s_allall)" = 0 ]
+          debugfs -R 'stat /system/product/app/WebViewGoogle/WebViewGoogle.apk' system-a17-pixel.img | head -1
+          debugfs -R 'stat /system/system_ext/priv-app/NexusLauncherRelease/NexusLauncherRelease.apk' system-a17-pixel.img | head -1
+
+      - name: Compress, split, checksums
+        run: |
+          mkdir out
+          xz -T0 -6 -c system-a17-pixel.img | split -b 1900M -d -a 2 - out/system-a17-pixel.img.xz.part-
+          xz -T0 -6 -c vendor-a17.img > out/vendor-a17.img.xz
+          cp boot-a17.img vbmeta-disabled.img out/
+          { echo "$(sha256sum system-a17-pixel.img | cut -d' ' -f1)  system-a17-pixel.img   (image, after joining the parts)";
+            echo "$(sha256sum vendor-a17.img | cut -d' ' -f1)  vendor-a17.img   (image, after xz -d)";
+            echo "$(sha256sum kernel/Image | cut -d' ' -f1)  kernel Image ($KERNEL_TAG)"; } > image-hashes.txt
+          cat image-hashes.txt
+          ( cd out && sha256sum * > SHA256SUMS )
+          cat image-hashes.txt >> out/SHA256SUMS
+          sed -e "s|@COMMIT@|${GITHUB_SHA::8}|g" -e "s|@KERNEL_TAG@|$KERNEL_TAG|g" docs/FLASH.md > out/FLASH.md
+          ls -la out
+
+      - name: Publish private release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --prerelease --title "M30s Android 17 Pixel image ($TAG), kernel $KERNEL_TAG" --notes-file out/FLASH.md
+          fi

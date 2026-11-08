@@ -1,0 +1,19 @@
+From: TB-X606V kernel project
+Subject: [PATCH] mtk-fiq-cache: skip init (NULL AEE record at boot)
+
+---
+diff --git a/drivers/misc/mediatek/fiq_cache/mtk-fiq-cache.c b/drivers/misc/mediatek/fiq_cache/mtk-fiq-cache.c
+--- a/drivers/misc/mediatek/fiq_cache/mtk-fiq-cache.c
++++ b/drivers/misc/mediatek/fiq_cache/mtk-fiq-cache.c
+@@ -31,6 +31,11 @@
+ 
+ static int __init fiq_cache_init(void)
+ {
++	/*
++	 * aee_rr_rec_fiq_cache_step_pa() dereferences an AEE record that is NULL with this source drop's
++	 * RAM console setup (NULL deref at 0.59 s, before userspace). FIQ cache flush is a crash-dump helper.
++	 */
++	return 0;
+ 
+ 	mt_secure_call(MTK_SIP_KERNEL_CACHE_FLUSH_INIT,
+ 		(unsigned long)aee_rr_rec_fiq_cache_step_pa(),

@@ -1,0 +1,6 @@
+id=bt-carside-profiles
+name=Bluetooth car-side profiles
+version=1
+versionCode=1
+author=manvindar
+description=Turns on A2DP sink, AVRCP controller, HFP client, PBAP client and MAP client (system properties bluetooth.profile.*.enabled) so a phone can play music to the tablet over Bluetooth. Remove the module and reboot to undo.

@@ -1,0 +1,25 @@
+diff --git a/drivers/video/fbdev/exynos/dpu20/dsim_drv.c b/drivers/video/fbdev/exynos/dpu20/dsim_drv.c
+index 06e4421..e59e5ef 100755
+--- a/drivers/video/fbdev/exynos/dpu20/dsim_drv.c
++++ b/drivers/video/fbdev/exynos/dpu20/dsim_drv.c
+@@ -1526,6 +1526,20 @@ static void dsim_parse_lcd_info(struct dsim_device *dsim)
+ 
+ 	/* HDR info */
+ 	of_property_read_u32(node, "hdr_num", &hdr_num);
++	if (!hdr_num) {		/* m30s DT has no HDR node: advertise HDR10 (HWC divides max/avg by 10000: 500 and 300 nit; min 0) */
++		hdr_num = 1;
++		hdr_type[0] = 2;	/* HDR_HDR10 */
++		hdr_mxl = 5000000;
++		hdr_mal = 3000000;
++		hdr_mnl = 0;
++		dsim->lcd_info.dt_lcd_hdr.hdr_max_luma = hdr_mxl;
++		dsim->lcd_info.dt_lcd_hdr.hdr_max_avg_luma = hdr_mal;
++		dsim->lcd_info.dt_lcd_hdr.hdr_min_luma = hdr_mnl;
++		dsim->lcd_info.dt_lcd_hdr.hdr_type[0] = hdr_type[0];
++		dsim->lcd_info.dt_lcd_hdr.hdr_num = hdr_num;
++		dsim_info("no hdr_num in DT: default HDR10 capability\n");
++		return;
++	}
+ 	dsim->lcd_info.dt_lcd_hdr.hdr_num = hdr_num;
+ 	dsim_info("hdr_num(%d)\n", hdr_num);
+ 

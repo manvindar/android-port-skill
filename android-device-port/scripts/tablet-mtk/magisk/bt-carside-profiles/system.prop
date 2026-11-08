@@ -1,0 +1,5 @@
+bluetooth.profile.a2dp.sink.enabled=true
+bluetooth.profile.avrcp.controller.enabled=true
+bluetooth.profile.hfp.hf.enabled=true
+bluetooth.profile.pbap.client.enabled=true
+bluetooth.profile.map.client.enabled=true

@@ -1,0 +1,76 @@
+#!/sbin/sh
+# TWRP installer for Android 17 on the Lenovo TB-X606V (Tab M10 FHD Plus). Built by tools/twrp/make_twrp_zip.sh. Flash it from TWRP (Install > the zip), no computer commands needed.
+# It writes only vbmeta, system, vendor files, and (when WIPE=1) erases userdata, metadata and cache. recovery, boot, lk, nvram and every other partition are never written.
+# Steps: 1 verification-disabled vbmeta   2 the system image (chunks, verified by sha256)   3 vendor edits (vendor_edits.sh)   4 first-boot compile job into /system   5 erase data
+# install.conf in the zip: FLASH_SYSTEM, WIPE, IMG_SIZE, IMG_SHA256, SPLIT_MB
+OUTFD=$2; ZIP=$3
+ui_print() { echo "ui_print $1" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; }
+abort() { ui_print ""; ui_print "ERROR: $1"; ui_print "Nothing after this point was done. Run the installer again, or restore your backup."; exit 1; }
+W=/tmp/a17_install; rm -rf $W; mkdir -p $W; cd $W
+unzip -o -q "$ZIP" 'install.conf' 'payload/*' || abort "cannot read the zip"
+. $W/install.conf
+B=/dev/block/by-name
+[ -e $B/system ] && [ -e $B/vendor ] && [ -e $B/userdata ] || abort "this is not a TB-X606V (no system, vendor, userdata by-name partitions)"
+ui_print "================================================"
+ui_print " Android 17 for the Lenovo Tab M10 FHD Plus"
+ui_print "================================================"
+[ "$WIPE" = 1 ] && ui_print "This erases ALL data on the tablet (userdata)."
+for m in /data /sdcard /cache /metadata /system /vendor /mnt/system_a17 /mnt/vendor_a17; do umount $m 2>/dev/null; done
+mkdir -p /mnt/system_a17 /mnt/vendor_a17
+
+# 1 vbmeta ---------------------------------------------------------------------------------------------------------------
+ui_print "1/5 vbmeta (verification disabled)"
+dd if=$W/payload/vbmeta-disabled.img of=$B/vbmeta bs=4096 conv=notrunc 2>/dev/null || abort "cannot write vbmeta"
+
+# 2 system image ---------------------------------------------------------------------------------------------------------
+if [ "$FLASH_SYSTEM" = 1 ]; then
+  ui_print "2/5 system image (about 4 GB, 3 to 6 minutes)"
+  i=0
+  for part in $(unzip -l "$ZIP" | grep -o 'system/system\.img\.[a-z]*' | sort); do
+    ui_print "      chunk $((i + 1))"
+    unzip -p "$ZIP" $part | dd of=$B/system bs=4M seek=$((i * SPLIT_MB / 4)) conv=notrunc 2>/dev/null
+    i=$((i + 1))
+  done
+  [ $i -gt 0 ] || abort "no system image in the zip"
+  sync
+  ui_print "      checking the written image"
+  got=$(head -c $IMG_SIZE $B/system | sha256sum | cut -d' ' -f1)
+  [ "$got" = "$IMG_SHA256" ] || abort "system image checksum mismatch after writing (got $got)"
+else
+  ui_print "2/5 system image: skipped"
+fi
+
+# 3 vendor edits ---------------------------------------------------------------------------------------------------------
+ui_print "3/5 vendor edits"
+mount -t ext4 -o rw $B/vendor /mnt/vendor_a17 || abort "cannot mount the vendor partition read-write"
+. $W/payload/vendor_edits.sh
+apply_vendor_edits /mnt/vendor_a17 $W/payload | while read l; do ui_print "      $l"; done
+sync; umount /mnt/vendor_a17
+
+# 4 first-boot compile job -----------------------------------------------------------------------------------------------
+ui_print "4/5 first-boot app compile job"
+if mount -t ext4 -o rw $B/system /mnt/system_a17; then
+  S=/mnt/system_a17
+  if [ -d $S/system ]; then S=$S/system; fi
+  for f in bin/firstboot_dexopt.sh:755 bin/dexopt_all.sh:755 etc/init/zz_firstboot_dexopt.rc:644; do
+    n=${f%%:*}; m=${f##*:}
+    cmp -s $W/payload/$(basename $n) $S/$n 2>/dev/null || { cat $W/payload/$(basename $n) > $S/$n; chmod $m $S/$n; chown 0:0 $S/$n; chcon u:object_r:system_file:s0 $S/$n 2>/dev/null; }
+  done
+  sync; umount /mnt/system_a17
+  ui_print "      the apps are compiled by the tablet itself after the first boot"
+else
+  ui_print "      could not mount system read-write: run tools/scripts/dexopt_on_tablet.sh after the first boot"
+fi
+
+# 5 erase data -----------------------------------------------------------------------------------------------------------
+if [ "$WIPE" = 1 ]; then
+  ui_print "5/5 erasing userdata, metadata and cache (Android formats them on the first boot)"
+  for p in userdata metadata cache; do dd if=/dev/zero of=$B/$p bs=1M count=16 2>/dev/null; done
+  sync
+else
+  ui_print "5/5 erase data: skipped"
+fi
+ui_print ""
+ui_print "Done. Reboot to system. The first boot takes several minutes."
+ui_print "About 3 minutes after it, the tablet starts compiling its apps (10 to 15 minutes, once)."
+exit 0

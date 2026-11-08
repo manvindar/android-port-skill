@@ -1,0 +1,203 @@
+From d900bee055bf92861df06e18070173dc972fadc6 Mon Sep 17 00:00:00 2001
+From: Johannes Weiner <hannes@cmpxchg.org>
+Date: Fri, 26 Oct 2018 15:06:11 -0700
+Subject: [PATCH] BACKPORT: sched: loadavg: consolidate LOAD_INT, LOAD_FRAC,
+ CALC_LOAD
+
+There are several definitions of those functions/macros in places that
+mess with fixed-point load averages.  Provide an official version.
+
+[akpm@linux-foundation.org: fix missed conversion in block/blk-iolatency.c]
+Link: http://lkml.kernel.org/r/20180828172258.3185-5-hannes@cmpxchg.org
+Signed-off-by: Johannes Weiner <hannes@cmpxchg.org>
+Acked-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Tested-by: Suren Baghdasaryan <surenb@google.com>
+Tested-by: Daniel Drake <drake@endlessm.com>
+Cc: Christopher Lameter <cl@linux.com>
+Cc: Ingo Molnar <mingo@redhat.com>
+Cc: Johannes Weiner <jweiner@fb.com>
+Cc: Mike Galbraith <efault@gmx.de>
+Cc: Peter Enderborg <peter.enderborg@sony.com>
+Cc: Randy Dunlap <rdunlap@infradead.org>
+Cc: Shakeel Butt <shakeelb@google.com>
+Cc: Tejun Heo <tj@kernel.org>
+Cc: Vinayak Menon <vinmenon@codeaurora.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+
+(cherry picked from commit 8508cf3ffad4defa202b303e5b6379efc4cd9054)
+
+Conflicts:
+        block/blk-iolatency.c
+
+(1. skipped changes in block/blk-iolatency.c as file does not exist in 4.14)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: Ifb7e12280b2aa4d379df29e24bbeab3e82a0bff8
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/arch/powerpc/platforms/cell/cpufreq_spudemand.c b/arch/powerpc/platforms/cell/cpufreq_spudemand.c
+index 882944c36ef..5d8e8b6bb1c 100644
+--- a/arch/powerpc/platforms/cell/cpufreq_spudemand.c
++++ b/arch/powerpc/platforms/cell/cpufreq_spudemand.c
+@@ -49,7 +49,7 @@ static int calc_freq(struct spu_gov_info_struct *info)
+ 	cpu = info->policy->cpu;
+ 	busy_spus = atomic_read(&cbe_spu_info[cpu_to_node(cpu)].busy_spus);
+ 
+-	CALC_LOAD(info->busy_spus, EXP, busy_spus * FIXED_1);
++	info->busy_spus = calc_load(info->busy_spus, EXP, busy_spus * FIXED_1);
+ 	pr_debug("cpu %d: busy_spus=%d, info->busy_spus=%ld\n",
+ 			cpu, busy_spus, info->busy_spus);
+ 
+diff --git a/arch/powerpc/platforms/cell/spufs/sched.c b/arch/powerpc/platforms/cell/spufs/sched.c
+index 1fbb5da17dd..509cf670913 100644
+--- a/arch/powerpc/platforms/cell/spufs/sched.c
++++ b/arch/powerpc/platforms/cell/spufs/sched.c
+@@ -987,9 +987,9 @@ static void spu_calc_load(void)
+ 	unsigned long active_tasks; /* fixed-point */
+ 
+ 	active_tasks = count_active_contexts() * FIXED_1;
+-	CALC_LOAD(spu_avenrun[0], EXP_1, active_tasks);
+-	CALC_LOAD(spu_avenrun[1], EXP_5, active_tasks);
+-	CALC_LOAD(spu_avenrun[2], EXP_15, active_tasks);
++	spu_avenrun[0] = calc_load(spu_avenrun[0], EXP_1, active_tasks);
++	spu_avenrun[1] = calc_load(spu_avenrun[1], EXP_5, active_tasks);
++	spu_avenrun[2] = calc_load(spu_avenrun[2], EXP_15, active_tasks);
+ }
+ 
+ static void spusched_wake(unsigned long data)
+@@ -1071,9 +1071,6 @@ void spuctx_switch_state(struct spu_context *ctx,
+ 	}
+ }
+ 
+-#define LOAD_INT(x) ((x) >> FSHIFT)
+-#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+-
+ static int show_spu_loadavg(struct seq_file *s, void *private)
+ {
+ 	int a, b, c;
+diff --git a/arch/s390/appldata/appldata_os.c b/arch/s390/appldata/appldata_os.c
+index 45b3178200a..a8aac17e1e8 100644
+--- a/arch/s390/appldata/appldata_os.c
++++ b/arch/s390/appldata/appldata_os.c
+@@ -24,10 +24,6 @@
+ 
+ #include "appldata.h"
+ 
+-
+-#define LOAD_INT(x) ((x) >> FSHIFT)
+-#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+-
+ /*
+  * OS data
+  *
+diff --git a/drivers/cpuidle/governors/menu.c b/drivers/cpuidle/governors/menu.c
+index 58c103b5892..55f55aec6cc 100644
+--- a/drivers/cpuidle/governors/menu.c
++++ b/drivers/cpuidle/governors/menu.c
+@@ -133,10 +133,6 @@ struct menu_device {
+ 	int		interval_ptr;
+ };
+ 
+-
+-#define LOAD_INT(x) ((x) >> FSHIFT)
+-#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+-
+ static inline int get_loadavg(unsigned long load)
+ {
+ 	return LOAD_INT(load) * 10 + LOAD_FRAC(load) / 10;
+diff --git a/fs/proc/loadavg.c b/fs/proc/loadavg.c
+index 9bc5c58c00e..b3c0475f88d 100644
+--- a/fs/proc/loadavg.c
++++ b/fs/proc/loadavg.c
+@@ -10,9 +10,6 @@
+ #include <linux/seqlock.h>
+ #include <linux/time.h>
+ 
+-#define LOAD_INT(x) ((x) >> FSHIFT)
+-#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+-
+ static int loadavg_proc_show(struct seq_file *m, void *v)
+ {
+ 	unsigned long avnrun[3];
+diff --git a/include/linux/sched/loadavg.h b/include/linux/sched/loadavg.h
+index 80bc84ba5d2..cc9cc62bb1f 100644
+--- a/include/linux/sched/loadavg.h
++++ b/include/linux/sched/loadavg.h
+@@ -22,10 +22,23 @@ extern void get_avenrun(unsigned long *loads, unsigned long offset, int shift);
+ #define EXP_5		2014		/* 1/exp(5sec/5min) */
+ #define EXP_15		2037		/* 1/exp(5sec/15min) */
+ 
+-#define CALC_LOAD(load,exp,n) \
+-	load *= exp; \
+-	load += n*(FIXED_1-exp); \
+-	load >>= FSHIFT;
++/*
++ * a1 = a0 * e + a * (1 - e)
++ */
++static inline unsigned long
++calc_load(unsigned long load, unsigned long exp, unsigned long active)
++{
++	unsigned long newload;
++
++	newload = load * exp + active * (FIXED_1 - exp);
++	if (active >= load)
++		newload += FIXED_1-1;
++
++	return newload / FIXED_1;
++}
++
++#define LOAD_INT(x) ((x) >> FSHIFT)
++#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+ 
+ extern void calc_global_load(unsigned long ticks);
+ 
+diff --git a/kernel/debug/kdb/kdb_main.c b/kernel/debug/kdb/kdb_main.c
+index 993db6b2348..3083df2a783 100644
+--- a/kernel/debug/kdb/kdb_main.c
++++ b/kernel/debug/kdb/kdb_main.c
+@@ -2586,16 +2586,11 @@ static int kdb_summary(int argc, const char **argv)
+ 	}
+ 	kdb_printf("%02ld:%02ld\n", val.uptime/(60*60), (val.uptime/60)%60);
+ 
+-	/* lifted from fs/proc/proc_misc.c::loadavg_read_proc() */
+-
+-#define LOAD_INT(x) ((x) >> FSHIFT)
+-#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+ 	kdb_printf("load avg   %ld.%02ld %ld.%02ld %ld.%02ld\n",
+ 		LOAD_INT(val.loads[0]), LOAD_FRAC(val.loads[0]),
+ 		LOAD_INT(val.loads[1]), LOAD_FRAC(val.loads[1]),
+ 		LOAD_INT(val.loads[2]), LOAD_FRAC(val.loads[2]));
+-#undef LOAD_INT
+-#undef LOAD_FRAC
++
+ 	/* Display in kilobytes */
+ #define K(x) ((x) << (PAGE_SHIFT - 10))
+ 	kdb_printf("\nMemTotal:       %8lu kB\nMemFree:        %8lu kB\n"
+diff --git a/kernel/sched/loadavg.c b/kernel/sched/loadavg.c
+index 89a989e4d75..d37eb9fe8aa 100644
+--- a/kernel/sched/loadavg.c
++++ b/kernel/sched/loadavg.c
+@@ -95,21 +95,6 @@ long calc_load_fold_active(struct rq *this_rq, long adjust)
+ 	return delta;
+ }
+ 
+-/*
+- * a1 = a0 * e + a * (1 - e)
+- */
+-static unsigned long
+-calc_load(unsigned long load, unsigned long exp, unsigned long active)
+-{
+-	unsigned long newload;
+-
+-	newload = load * exp + active * (FIXED_1 - exp);
+-	if (active >= load)
+-		newload += FIXED_1-1;
+-
+-	return newload / FIXED_1;
+-}
+-
+ #ifdef CONFIG_NO_HZ_COMMON
+ /*
+  * Handle NO_HZ for the global load-average.

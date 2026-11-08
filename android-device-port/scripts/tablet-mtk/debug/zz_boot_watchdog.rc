@@ -1,0 +1,9 @@
+on post-fs-data
+    start boot_watchdog
+
+service boot_watchdog /system/bin/sh /system/bin/boot_watchdog.sh
+    user root
+    group root
+    seclabel u:r:init:s0
+    disabled
+    oneshot

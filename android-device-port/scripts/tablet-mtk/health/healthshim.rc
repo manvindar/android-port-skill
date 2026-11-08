@@ -1,0 +1,5 @@
+service healthshim /system/bin/healthshim.sh
+    class hal
+    user system
+    group system
+    seclabel u:r:su:s0

@@ -1,0 +1,72 @@
+# One UI 9 donor (A266BXXUCDZJ6) debloat list for the M30s: the ext4 system partition is 4800 MiB, the donor system is 7207 MiB.
+# Rule: remove what is big and not needed to boot or to use phone, Wi-Fi, camera, settings, launcher. Nothing that Settings/SystemUI/telephony bind to by name goes here.
+# Matched by fnmatch on the full path in the image. Sizes are MiB of the donor. Edit, then rerun erofs2ext4.py --dry-run to see the total.
+
+# --- apps/ (user-installable system apps)
+/system/app/OCRDataProvider                    # 180 text recognition data
+/system/app/SamsungTTSVoice_*                  # ~530 TTS voices
+/system/app/SamsungTTS                         # 42 Samsung TTS engine (Google speech services stay)
+/system/app/TalkBack                           # 52
+/system/app/VideoEditorLite_Dream_N            # 50
+/system/app/FunModeSDK                         # 44 AR emoji camera mode
+/system/app/LiveTranscribe                     # 35
+/system/app/VisionIntelligence3.7              # 26
+/system/app/StickerCenter                      # 27
+/system/app/ParentalCare                       # 22
+/system/app/VideoTrimmer                       # 17
+/system/app/VoiceAccess                        # 16
+/system/app/DrivingPlus                        # 16
+/system/app/BGMProvider                        # 16
+/system/app/FacAtFunction                      # 15 factory test
+/system/app/AllShareAware                      # 14
+/system/app/UniversalMDMClient                 # 13
+/system/app/FBAppManager_NS                    # 13 Facebook app manager
+/system/app/SmartManager_v6_DeviceSecurity     # 40 Device care
+/system/app/SamsungWeather                     # 63
+/system/app/SmartCapture                       # 70
+# --- priv-app/
+/system/priv-app/SamsungSmartSuggestions       # 175
+/system/priv-app/OneDrive_Samsung_v3           # 138
+/system/priv-app/SamsungCloudClient            # 85
+/system/priv-app/YourPhone_P1_5                # 83
+/system/priv-app/SamsungIntelliVoiceServices   # 81 Bixby voice wake
+/system/priv-app/Routines                      # 80
+/system/priv-app/PhotoEditor_Full              # 77
+/system/priv-app/PhotoRemasterService          # 76
+/system/priv-app/GalaxyApps_OPEN               # 72 Galaxy Store
+/system/priv-app/AREmoji                       # 67
+/system/priv-app/DressRoom                     # 66
+/system/priv-app/DynamicLockscreen             # 53
+/system/priv-app/SamsungPass                   # 53
+/system/priv-app/BudsUniteManager              # 43
+/system/priv-app/ClockPack_v80                 # 39
+/system/priv-app/Crane                         # 36
+/system/priv-app/SingleTakeService             # 33
+/system/priv-app/ShareLive                     # 32
+/system/priv-app/StickerFaceARAvatar           # 30
+/system/priv-app/HashTagService                # 29
+/system/priv-app/KmxService                    # 28
+/system/priv-app/IpsGeofence                   # 28
+/system/priv-app/ThemeStore                    # 27
+/system/priv-app/SmartManager_v5               # 27
+/system/priv-app/DigitalWellbeing              # 24
+/system/priv-app/RubinVersion38                # 23
+/system/priv-app/CallAssistant                 # 21
+/system/priv-app/Fmm                           # 19 Find my mobile
+/system/priv-app/SmartThingsKit                # 18
+/system/priv-app/vexfwk_service                # 18
+/system/priv-app/SecureFolder                  # 17
+/system/priv-app/DualOutFocusViewer_V          # 16
+/system/priv-app/WarrantyCare                  # 14
+/system/priv-app/GalleryWidget                 # 13
+/system/priv-app/SamsungVideoPlayer            # 14
+/system/priv-app/GameTools_Dream               # 10
+/system/priv-app/GpuWatchApp                   # 10
+/system/priv-app/BixbyVisionFramework3.5       # 11
+# --- data directories
+/system/saiv                                   # 137 Samsung AI vision models
+/system/etc/objectremoval                      # 59
+/system/etc/reflectionremoval                  # 32
+/system/etc/style_transfer                     # 24
+/system/etc/mfcontents                         # 22
+/system/hidden                                 # 42

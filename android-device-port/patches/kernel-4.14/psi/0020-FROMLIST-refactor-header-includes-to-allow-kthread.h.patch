@@ -1,0 +1,41 @@
+From 4c08ee4e58d5ded6d4468333890d078cbaf2a28b Mon Sep 17 00:00:00 2001
+From: Suren Baghdasaryan <surenb@google.com>
+Date: Sun, 17 Feb 2019 15:07:38 -0800
+Subject: [PATCH] FROMLIST: refactor header includes to allow kthread.h
+ inclusion in psi_types.h
+
+kthread.h can't be included in psi_types.h because it creates a circular
+inclusion with kthread.h eventually including psi_types.h and complaining
+on kthread structures not being defined because they are defined further
+in the kthread.h. Resolve this by removing psi_types.h inclusion from the
+headers included from kthread.h.
+
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+(not upstream yet, latest version published at: https://lore.kernel.org/patchwork/patch/1052417/)
+
+Conflicts:
+        include/linux/kthread.h
+        kernel/kthread.c
+
+(1. <linux/cgroup.h> include is already missing in kthread.h
+2. <linux/cgroup.h> is already included in kthread.c)
+
+Bug: 127712811
+Bug: 129157727
+Test: lmkd in PSI mode
+Change-Id: I07c1f4fddf0c43b3095f505e062d9d179d041544
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index a5e47b74d6b..2d86c0eeee4 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -25,7 +25,6 @@
+ #include <linux/latencytop.h>
+ #include <linux/sched/prio.h>
+ #include <linux/signal_types.h>
+-#include <linux/psi_types.h>
+ #include <linux/mm_types_task.h>
+ #include <linux/task_io_accounting.h>
+ 

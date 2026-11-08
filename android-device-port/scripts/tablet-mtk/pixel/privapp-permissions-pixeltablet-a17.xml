@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Privileged permissions that the Pixel Tablet SystemUI, Settings and launcher of Android 17 DP11.261016.003 request beyond the GSI's own allowlists. Without an entry for each one system_server aborts at boot (ro.control_privapp_permissions=enforce in the vendor). -->
+<permissions>
+    <privapp-permissions package="com.google.android.apps.nexuslauncher">
+        <permission name="android.permission.ACCESS_CONTEXTUAL_SEARCH"/>
+        <permission name="android.permission.ACCESS_HIDDEN_PROFILES_FULL"/>
+        <permission name="android.permission.ALLOW_SLIPPERY_TOUCHES"/>
+        <permission name="android.permission.BIND_APPWIDGET"/>
+        <permission name="android.permission.BROADCAST_CLOSE_SYSTEM_DIALOGS"/>
+        <permission name="android.permission.CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS"/>
+        <permission name="android.permission.GET_ROLE_HOLDERS"/>
+        <permission name="android.permission.OBSERVE_ROLE_HOLDERS"/>
+        <permission name="android.permission.PACKAGE_USAGE_STATS"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_HOST_INSIGHT_SURFACE"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_PUBLISH_HINTS"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_READ_SETTINGS"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_RECEIVE_INSIGHTS"/>
+        <permission name="android.permission.READ_REMOTE_TASKS"/>
+        <permission name="android.permission.READ_SEARCH_INDEXABLES"/>
+        <permission name="android.permission.READ_WALLPAPER_INTERNAL"/>
+        <permission name="android.permission.REGISTER_STATS_PULL_ATOM"/>
+        <permission name="android.permission.REQUEST_TASK_HANDOFF"/>
+        <permission name="android.permission.SET_UNRESTRICTED_KEEP_CLEAR_AREAS"/>
+        <permission name="android.permission.START_TASKS_FROM_RECENTS"/>
+        <permission name="android.permission.STATUS_BAR"/>
+        <permission name="android.permission.STOP_APP_SWITCHES"/>
+        <permission name="android.permission.USE_ON_DEVICE_INTELLIGENCE"/>
+        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
+    </privapp-permissions>
+    <privapp-permissions package="com.android.systemui">
+        <permission name="android.permission.ACCESS_CONTEXT_HUB"/>
+        <permission name="android.permission.REGISTER_STATS_PULL_ATOM"/>
+        <permission name="android.permission.SET_WALLPAPER_COMPONENT"/>
+    </privapp-permissions>
+    <privapp-permissions package="com.android.settings">
+        <permission name="android.permission.CONTROL_DEVICE_LIGHTS"/>
+    </privapp-permissions>
+</permissions>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The donor names the AOSP package; the extservices apex it ships (com.google.android.extservices) installs the Google build, as on a Pixel. PackageManagerService throws without it. -->
+    <string name="config_servicesExtensionPackage" translatable="false">com.google.android.ext.services</string>
+</resources>

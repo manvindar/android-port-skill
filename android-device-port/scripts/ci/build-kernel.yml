@@ -1,0 +1,129 @@
+name: Build kernel
+on:
+  workflow_dispatch:
+    inputs:
+      fragment:
+        description: Merge config/a17.fragment (PSI, memcg, BPF) into the stock defconfig
+        type: boolean
+        default: false
+      perf:
+        description: Also merge config/perf.fragment (-O2, lz4, BBR, BFQ, less debug)
+        type: boolean
+        default: false
+      boost:
+        description: Also apply patches/boost and merge config/boost.fragment (CPU/GPU clocks, touch boost)
+        type: boolean
+        default: false
+      hdr:
+        description: Apply patches/hdr (panel advertises HDR10 to Android)
+        type: boolean
+        default: false
+      publish:
+        description: Publish a GitHub release with Image and config
+        type: boolean
+        default: false
+      tag:
+        description: Release tag
+        default: kernel-ci
+permissions:
+  contents: write
+env:
+  AOSP: https://android.googlesource.com/platform/prebuilts
+  REF: refs/tags/android-9.0.0_r30   # has clang-4639204, the compiler Samsung's Makefile names
+  SRC_TAG: source-SM-M307F_SWA_RR    # release of this repo holding Samsung's Kernel.tar.gz (not in git: 181 MB)
+jobs:
+  build:
+    runs-on: ubuntu-22.04   # old kernel, old toolchain: stay on a distro with python2 and a compatible host gcc
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev device-tree-compiler python2 xz-utils ccache
+      - name: Compat for the old clang (python wrapper, libtinfo.so.5)
+        run: |
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
+          sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5
+      - name: Cache toolchains and ccache
+        uses: actions/cache@v6
+        with:
+          path: |
+            tc
+            ~/.cache/ccache
+          key: m30s-tc-${{ github.run_id }}
+          restore-keys: m30s-tc-
+      - name: Fetch toolchains (clang-4639204, gcc 4.9)
+        run: |
+          mkdir -p tc/clang tc/gcc64 tc/gcc32
+          get() { [ -n "$(ls -A "tc/$1" 2>/dev/null)" ] || curl -sfL --retry 6 --retry-all-errors --retry-delay 5 "$2" | tar xz -C "tc/$1"; }
+          get clang "$AOSP/clang/host/linux-x86/+archive/$REF/clang-4639204.tar.gz"
+          get gcc64 "$AOSP/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/$REF.tar.gz"
+          get gcc32 "$AOSP/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/$REF.tar.gz"
+      - name: Get Samsung's kernel source
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download "$SRC_TAG" -p Kernel.tar.gz
+          mkdir src && tar -xzf Kernel.tar.gz -C src && rm Kernel.tar.gz
+          # Samsung's Makefile looks for its toolchains below $(srctree)/toolchain
+          mkdir -p src/toolchain/clang/host/linux-x86 src/toolchain/gcc/linux-x86/aarch64
+          ln -s "$GITHUB_WORKSPACE/tc/clang" src/toolchain/clang/host/linux-x86/clang-4639204
+          ln -s "$GITHUB_WORKSPACE/tc/gcc64" src/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+      - name: Check toolchain
+        run: |
+          ls tc/clang/bin | head -5; file tc/clang/bin/clang* | head -3
+          tc/clang/bin/clang --version || ldd tc/clang/bin/clang | head
+          tc/gcc64/bin/aarch64-linux-android-gcc --version | head -1 || true
+      - name: Build
+        run: |
+          cd src
+          export PLATFORM_VERSION=11 ANDROID_MAJOR_VERSION=r ARCH=arm64 CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+          export PATH=$GITHUB_WORKSPACE/tc/gcc32/bin:$PATH
+          printf '#!/bin/sh\nexec gcc -fcommon "$@"\n' > $GITHUB_WORKSPACE/hostgcc && chmod +x $GITHUB_WORKSPACE/hostgcc  # old dtc needs -fcommon on gcc>=10
+          M="HOSTCC=$GITHUB_WORKSPACE/hostgcc python=python2"
+          if [ "${{ inputs.fragment }}" = true ]; then   # Android common 4.14-q PSI series (26 patches); stop on any reject
+            for p in ../patches/psi/*.patch; do
+              patch -p1 -F3 --no-backup-if-mismatch < "$p" > ../patch.log 2>&1 || { echo "PATCH FAILED: $p"; cat ../patch.log; exit 1; }
+              grep -H "fuzz" ../patch.log | sed "s|^|$(basename $p): |" || true
+            done
+          fi
+          if [ "${{ inputs.hdr }}" = true ]; then
+            for p in ../patches/hdr/*.patch; do patch -p1 --no-backup-if-mismatch < "$p" || { echo "PATCH FAILED: $p"; exit 1; }; done
+          fi
+          if [ "${{ inputs.boost }}" = true ]; then   # touch boost driver (not a patch: new file plus Makefile/Kconfig lines)
+            cp ../boost/input_boost_m30s.c drivers/input/
+            echo 'obj-$(CONFIG_INPUT_BOOST_M30S) += input_boost_m30s.o' >> drivers/input/Makefile
+            cat ../boost/Kconfig.snippet >> drivers/input/Kconfig
+          fi
+          find . -name 'Kconfig*' -exec sed -i 's/\r$//' {} +   # CRLF in Samsung's Kconfig files
+          sed -i 's/PF_MAX > [0-9]*/PF_MAX > 99/' security/selinux/include/classmap.h   # host AF_MAX is newer than the kernel expects (host tool only)
+          make $M exynos9610-m30sdd_defconfig
+          FRAGS=../config/a17.fragment
+          [ "${{ inputs.perf }}" = true ] && FRAGS="$FRAGS ../config/perf.fragment"
+          [ "${{ inputs.boost }}" = true ] && FRAGS="$FRAGS ../config/boost.fragment"
+          [ "${{ inputs.hdr }}" = true ] && FRAGS="$FRAGS ../config/hdr.fragment"
+          if [ "${{ inputs.fragment }}" = true ]; then
+            ./scripts/kconfig/merge_config.sh -m .config $FRAGS
+            make $M olddefconfig
+          fi
+          if [ "${{ inputs.fragment }}" = true ]; then   # symbols the 4.14 source does not know are dropped silently
+            for c in $(cat $FRAGS | sed -n 's/^\(CONFIG_[A-Z0-9_]*\)=y/\1/p'); do grep -q "^$c=y" .config || echo "NOT IN FINAL CONFIG: $c"; done
+            for c in $(cat $FRAGS | sed -n 's/^# \(CONFIG_[A-Z0-9_]*\) is not set/\1/p'); do grep -q "^$c=" .config && echo "STILL SET: $c"; done
+          fi
+          make $M -k -j"$(nproc)" Image > ../build.log 2>&1 || { grep -E "error:|\*\*\*|undefined reference" ../build.log | head -60; exit 1; }
+          ls -l arch/arm64/boot/Image
+          echo "--- SELinux ALWAYS_ENFORCE (Samsung sets it only for user/ship builds):"
+          grep -n "ALWAYS_ENFORCE" security/selinux/Makefile || true
+          grep -l "ALWAYS_ENFORCE" security/selinux/.*.cmd 2>/dev/null | head -3 || true
+          echo "ALWAYS_ENFORCE in .config: $(grep -c ALWAYS_ENFORCE .config)"
+          grep -E "^CONFIG_(PSI|MEMCG|CGROUP_BPF|BPF_SYSCALL|EROFS_FS|SECCOMP|KVM)=" .config || true
+      - name: Collect
+        run: |
+          mkdir dist
+          cp src/arch/arm64/boot/Image dist/
+          cp src/.config dist/kernel.config   # dotfiles are skipped by the release glob
+          cp scripts/repack_boot.py dist/
+          cd dist && sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with: { name: kernel, path: dist/ }
+      - name: Publish release
+        if: ${{ inputs.publish }}
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release create "${{ inputs.tag }}" dist/* --prerelease --title "SM-M307F kernel (${{ inputs.tag }})" --notes "Raw arm64 Image built from Samsung's 4.14.113 source. Put it into the stock boot.img with repack_boot.py."

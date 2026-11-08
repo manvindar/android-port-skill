@@ -1,0 +1,74 @@
+name: Build kernel
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a GitHub release with the boot image
+        type: boolean
+        default: true
+      tag:
+        description: Release tag
+        default: kernel-a17-ci
+permissions:
+  contents: write
+env:
+  SRC_REPO: UsrBinLuna/kernel_lenovo_achilles6   # Lenovo OSS drop, 4.9.117 (the 4.9.302 community tree does not compile)
+  AOSP: https://android.googlesource.com/platform/prebuilts
+  REF: refs/heads/android10-release
+jobs:
+  build:
+    runs-on: ubuntu-22.04   # python2 (MediaTek DrvGen.py) is only packaged up to 22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bc bison flex libssl-dev device-tree-compiler python3 python2 xz-utils ccache
+      - name: Cache toolchains and ccache
+        uses: actions/cache@v6
+        with:
+          path: |
+            tc
+            ~/.cache/ccache
+          key: kernel-tc-r353983c-${{ github.run_id }}
+          restore-keys: kernel-tc-r353983c-
+      - name: Fetch toolchains (clang r353983c, gcc 4.9 as used by the stock build)
+        run: |
+          mkdir -p tc/clang tc/gcc64 tc/gcc32
+          get() { [ -n "$(ls -A "tc/$1" 2>/dev/null)" ] || curl -sfL --retry 6 --retry-all-errors --retry-delay 5 "$2" | tar xz -C "tc/$1"; }
+          get clang "$AOSP/clang/host/linux-x86/+archive/$REF/clang-r353983c.tar.gz"
+          get gcc64 "$AOSP/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/$REF.tar.gz"
+          get gcc32 "$AOSP/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/$REF.tar.gz"
+      - name: Clone and patch the kernel
+        run: |
+          git clone --depth 1 https://github.com/$SRC_REPO.git src
+          cd src
+          for p in ../patches/*.patch; do git apply --check "$p" && git apply --verbose "$p" || echo "SKIPPED $p"; done
+      - name: Build
+        run: |
+          cd src
+          export PATH=$GITHUB_WORKSPACE/tc/clang/bin:$GITHUB_WORKSPACE/tc/gcc64/bin:$GITHUB_WORKSPACE/tc/gcc32/bin:$PATH
+          printf '#!/bin/sh\nexec gcc -fcommon "$@"\n' > $GITHUB_WORKSPACE/hostgcc && chmod +x $GITHUB_WORKSPACE/hostgcc  # old dtc needs -fcommon on gcc>=10
+          printf '#!/bin/sh\nexec ccache clang "$@"\n' > $GITHUB_WORKSPACE/ccache-clang && chmod +x $GITHUB_WORKSPACE/ccache-clang
+          export CCACHE_BASEDIR=$GITHUB_WORKSPACE CCACHE_NOHASHDIR=1 CCACHE_COMPRESS=1 CCACHE_MAXSIZE=1G
+          M="ARCH=arm64 O=out CC=$GITHUB_WORKSPACE/ccache-clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- python=python2 HOSTCC=$GITHUB_WORKSPACE/hostgcc"
+          make $M achilles6_row_call_defconfig
+          ./scripts/kconfig/merge_config.sh -m -O out out/.config ../config/android16.fragment
+          make $M olddefconfig
+          make $M -k -j"$(nproc)" Image.gz-dtb > ../build.log 2>&1 || { grep -E "error:|\*\*\*|undefined reference" ../build.log | head -60; exit 1; }
+          ccache -s | head -6
+          ls -l out/arch/arm64/boot/Image.gz-dtb
+      - name: Repack boot.img
+        run: |
+          # stock boot.img is not redistributed: the repack needs it, so publish the kernel and a patch script instead
+          mkdir dist
+          cp src/out/arch/arm64/boot/Image.gz-dtb dist/
+          cp src/out/.config dist/config
+          cp scripts/repack_boot.py dist/
+          cd dist && sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with: { name: kernel, path: dist/ }
+      - name: Publish release
+        if: ${{ inputs.publish }}
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release create "${{ inputs.tag }}" dist/* --title "Kernel 4.9 for TB-X606V (${{ inputs.tag }})" \
+            --notes "Image.gz-dtb with the F_SEAL_FUTURE_WRITE backport. Pack it into your boot.img with repack_boot.py, then test with fastboot boot (RAM only)."

@@ -1,0 +1,6 @@
+# AIDL IFingerprint/default for Android 17's FingerprintService, backed by the vendor's HIDL IBiometricsFingerprint@2.1 (Samsung). Source: tools/fphal/shim.
+service m30s_fphal /system/bin/m30s-fphal.sh
+    class hal
+    user system
+    group system
+    seclabel u:r:su:s0

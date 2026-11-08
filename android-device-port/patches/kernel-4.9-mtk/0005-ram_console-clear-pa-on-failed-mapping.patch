@@ -1,0 +1,25 @@
+From: TB-X606V kernel project
+Subject: [PATCH] ram_console: clear ram_console_buffer_pa when the SRAM mapping fails
+
+The bootloader of the shipping 4.9.190 firmware passes a ram_console DT node this 4.9.117 driver misparses
+(0xac000000001@0x8000010dc00), ioremap fails, and the garbage _pa pointer makes every aee_rr_rec_*_pa()
+caller oops on a NULL ram_console_buffer. Forcing the Kconfig window instead makes the early boot hang.
+
+---
+diff --git a/drivers/misc/mediatek/ram_console/mtk_ram_console.c b/drivers/misc/mediatek/ram_console/mtk_ram_console.c
+--- a/drivers/misc/mediatek/ram_console/mtk_ram_console.c
++++ b/drivers/misc/mediatek/ram_console/mtk_ram_console.c
+@@ -681,6 +681,13 @@
+ 		if (bufp)
+ 			buffer_size = sram.size;
+ 		else {
++			/*
++			 * The aee_rr_rec_*_pa() helpers test ram_console_buffer_pa but then dereference
++			 * ram_console_buffer (the failed mapping): keep both NULL or fiq_cache_init and
++			 * mtk_cpuidle_init oops at boot. (Making the mapping succeed instead hangs the
++			 * tablet in the first fraction of a second.)
++			 */
++			ram_console_buffer_pa = NULL;
+ 			pr_err("ram_console: ioremap failed, [0x%lx, 0x%lx]\n",
+ 					sram.start,
+ 			       sram.size);

@@ -1,0 +1,5 @@
+service vibratorshim /system/bin/vibratorshim.sh
+    class hal
+    user system
+    group system
+    seclabel u:r:su:s0

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Android 10 vendor declares only android.hardware.telephony and .gsm. Android 17 telephony (RIL.mIsCellularSupported) also needs the
+     sub-features: without radio.access every radio service is reported "not available" and the HIDL radio 1.4 of the vendor is never opened. -->
+<permissions>
+    <feature name="android.hardware.telephony.radio.access" />
+    <feature name="android.hardware.telephony.calling" />
+    <feature name="android.hardware.telephony.data" />
+    <feature name="android.hardware.telephony.messaging" />
+</permissions>

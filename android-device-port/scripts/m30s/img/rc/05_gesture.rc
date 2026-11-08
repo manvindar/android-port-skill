@@ -1,0 +1,12 @@
+# Pixel SystemUI's back-gesture classifier (libtensorflowlite_jni.so in SystemUI.apk) is built for a newer CPU than the Exynos 9611: the lib dies with SIGILL (illegal instruction) in
+# tflite::jni::BufferErrorReporter, SystemUI crash-loops and the screen stays black as soon as gesture navigation is on. Without the ML model SystemUI uses the plain edge-swipe back gesture.
+# DeviceConfig systemui/use_back_gesture_ml_model defaults to true; set it false on every boot (the value lives in userdata and GMS flag sync may restore it).
+service gesture_noml /system/bin/cmd device_config put systemui use_back_gesture_ml_model false
+    user root
+    group root
+    seclabel u:r:su:s0
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start gesture_noml

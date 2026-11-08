@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The M30s panel has rounded corners; the Pixel 9a's own values for this (its auto-generated overlay) are not staged, so the status bar content ran into the corners. -->
+<resources>
+    <dimen name="rounded_corner_content_padding">20dp</dimen>
+</resources>

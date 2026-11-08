@@ -1,0 +1,44 @@
+name: Build tools
+on:
+  push:
+    branches: [main]
+    paths: ['tools/**', 'build/**', '.github/workflows/build-tools.yml']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.12' }
+      - name: Python syntax
+        run: python -m compileall -q build tools
+      - name: Shell syntax
+        run: |
+          set -e
+          for f in $(git ls-files '*.sh'); do bash -n "$f"; done
+  helpers:
+    # the two helpers that run on the tablet: the lmkd replacement (static aarch64 binary) and the lights HAL shim (dex jar)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.14.1 }
+      - uses: actions/setup-java@v6
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v4
+      - name: SDK pieces
+        run: sdkmanager "build-tools;35.0.0" "platforms;android-34"
+      - name: lmkd replacement
+        run: zig cc -target aarch64-linux-musl -static -O2 -D_GNU_SOURCE -o lmkd_inkernel tools/lmkd/lmkd_inkernel.c
+      - name: lights shim
+        run: sh tools/lights/build.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tablet-helpers
+          path: |
+            lmkd_inkernel
+            tools/lights/out/lightsshim.jar

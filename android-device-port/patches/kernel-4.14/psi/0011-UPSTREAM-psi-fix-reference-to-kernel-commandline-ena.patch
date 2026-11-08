@@ -1,0 +1,38 @@
+From 9c915720231bd612ebfc6910c10c160dff64d096 Mon Sep 17 00:00:00 2001
+From: Baruch Siach <baruch@tkos.co.il>
+Date: Fri, 14 Dec 2018 14:17:03 -0800
+Subject: [PATCH] UPSTREAM: psi: fix reference to kernel commandline enable
+
+The kernel commandline parameter named in CONFIG_PSI_DEFAULT_DISABLED
+help text contradicts the documentation in kernel-parameters.txt, and
+the code.  Fix that.
+
+Link: http://lkml.kernel.org/r/20181203213416.GA12627@cmpxchg.org
+Fixes: e0c274472d ("psi: make disabling/enabling easier for vendor kernels")
+Signed-off-by: Baruch Siach <baruch@tkos.co.il>
+Acked-by: Johannes Weiner <hannes@cmpxchg.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+
+(cherry picked from commit 428a1cb4baeb9e5c7feda93af7372ba6d2491558)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: I592b66d6542f4fa7c2b6eb9f60a5dd43bcfbabf3
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/init/Kconfig b/init/Kconfig
+index 26c554bc65d..d58ade72b7d 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -504,8 +504,8 @@ config PSI_DEFAULT_DISABLED
+ 	depends on PSI
+ 	help
+ 	  If set, pressure stall information tracking will be disabled
+-	  per default but can be enabled through passing psi_enable=1
+-	  on the kernel commandline during boot.
++	  per default but can be enabled through passing psi=1 on the
++	  kernel commandline during boot.
+ 
+ endmenu # "CPU/Task time and stats accounting"
+ 

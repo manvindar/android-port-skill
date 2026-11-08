@@ -1,0 +1,97 @@
+From 90ed659d1720ee624885c8f8c67144b38b3d911f Mon Sep 17 00:00:00 2001
+From: Johannes Weiner <hannes@cmpxchg.org>
+Date: Thu, 31 Jan 2019 10:41:54 +1100
+Subject: [PATCH] BACKPORT: kernel: cgroup: add poll file operation
+
+Cgroup has a standardized poll/notification mechanism for waking all
+pollers on all fds when a filesystem node changes.  To allow polling for
+custom events, add a .poll callback that can override the default.
+
+This is in preparation for pollable cgroup pressure files which have
+per-fd trigger configurations.
+
+Link: http://lkml.kernel.org/r/20190124211518.244221-3-surenb@google.com
+Signed-off-by: Johannes Weiner <hannes@cmpxchg.org>
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+Cc: Dennis Zhou <dennis@kernel.org>
+Cc: Ingo Molnar <mingo@redhat.com>
+Cc: Jens Axboe <axboe@kernel.dk>
+Cc: Li Zefan <lizefan@huawei.com>
+Cc: Peter Zijlstra <peterz@infradead.org>
+Cc: Tejun Heo <tj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Stephen Rothwell <sfr@canb.auug.org.au>
+
+(cherry picked from commit: dc50537bdd1a0804fa2cbc990565ee9a944e66fa)
+
+Conflicts:
+        include/linux/cgroup-defs.h
+        kernel/cgroup.c
+
+(1. replaced __poll_t with unsigned int)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: I21aff1d9d31e3d4b45e257aa4d299405a2ce6de3
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/include/linux/cgroup-defs.h b/include/linux/cgroup-defs.h
+index f113ebd940e..11117351b8f 100644
+--- a/include/linux/cgroup-defs.h
++++ b/include/linux/cgroup-defs.h
+@@ -31,6 +31,7 @@ struct kernfs_node;
+ struct kernfs_ops;
+ struct kernfs_open_file;
+ struct seq_file;
++struct poll_table_struct;
+ 
+ #define MAX_CGROUP_TYPE_NAMELEN 32
+ #define MAX_CGROUP_ROOT_NAMELEN 64
+@@ -502,6 +503,9 @@ struct cftype {
+ 	ssize_t (*write)(struct kernfs_open_file *of,
+ 			 char *buf, size_t nbytes, loff_t off);
+ 
++	unsigned int (*poll)(struct kernfs_open_file *of,
++			     struct poll_table_struct *pt);
++
+ #ifdef CONFIG_DEBUG_LOCK_ALLOC
+ 	struct lock_class_key	lockdep_key;
+ #endif
+diff --git a/kernel/cgroup/cgroup.c b/kernel/cgroup/cgroup.c
+index 1742c6e1c1b..d20a96ed6af 100644
+--- a/kernel/cgroup/cgroup.c
++++ b/kernel/cgroup/cgroup.c
+@@ -3412,6 +3412,17 @@ static ssize_t cgroup_file_write(struct kernfs_open_file *of, char *buf,
+ 	return ret ?: nbytes;
+ }
+ 
++static unsigned int cgroup_file_poll(struct kernfs_open_file *of,
++				     poll_table *pt)
++{
++	struct cftype *cft = of->kn->priv;
++
++	if (cft->poll)
++		return cft->poll(of, pt);
++
++	return kernfs_generic_poll(of, pt);
++}
++
+ static void *cgroup_seqfile_start(struct seq_file *seq, loff_t *ppos)
+ {
+ 	return seq_cft(seq)->seq_start(seq, ppos);
+@@ -3450,6 +3461,7 @@ static struct kernfs_ops cgroup_kf_single_ops = {
+ 	.open			= cgroup_file_open,
+ 	.release		= cgroup_file_release,
+ 	.write			= cgroup_file_write,
++	.poll			= cgroup_file_poll,
+ 	.seq_show		= cgroup_seqfile_show,
+ };
+ 
+@@ -3458,6 +3470,7 @@ static struct kernfs_ops cgroup_kf_ops = {
+ 	.open			= cgroup_file_open,
+ 	.release		= cgroup_file_release,
+ 	.write			= cgroup_file_write,
++	.poll			= cgroup_file_poll,
+ 	.seq_start		= cgroup_seqfile_start,
+ 	.seq_next		= cgroup_seqfile_next,
+ 	.seq_stop		= cgroup_seqfile_stop,

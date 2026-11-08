@@ -1,0 +1,8 @@
+# Applied on top of achilles6_row_call_defconfig (merge_config.sh).
+# Android 16 userspace (netd/eBPF loader) uses these. PSI is 4.20+, so lmkd keeps its vmpressure path.
+CONFIG_BPF_JIT=y
+CONFIG_NET_ACT_BPF=y
+CONFIG_BPF_EVENTS=y
+CONFIG_CGROUP_BPF=y
+# stock kernel has cls_bpf; Android 17 netd/tethering use it
+CONFIG_NET_CLS_BPF=y

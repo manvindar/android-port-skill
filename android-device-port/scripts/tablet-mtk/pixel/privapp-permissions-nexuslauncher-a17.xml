@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Extra privileged permissions that the Android 17 build of Pixel Launcher requests (the Android 16 whitelist from NikGapps lacks them; the system server aborts at boot if one is missing). -->
+<permissions>
+    <privapp-permissions package="com.google.android.apps.nexuslauncher">
+        <permission name="android.permission.GET_ROLE_HOLDERS"/>
+        <permission name="android.permission.OBSERVE_ROLE_HOLDERS"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_HOST_INSIGHT_SURFACE"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_PUBLISH_HINTS"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_READ_SETTINGS"/>
+        <permission name="android.permission.PERSONAL_CONTEXT_RECEIVE_INSIGHTS"/>
+        <permission name="android.permission.READ_WALLPAPER_INTERNAL"/>
+        <permission name="android.permission.USE_ON_DEVICE_INTELLIGENCE"/>
+    </privapp-permissions>
+</permissions>

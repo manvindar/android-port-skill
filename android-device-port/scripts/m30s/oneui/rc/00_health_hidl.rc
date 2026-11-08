@@ -1,0 +1,5 @@
+# One UI port: the vendor (/vendor, Android 11) serves HIDL health 2.x plus Samsung's HIDL vendor.samsung.hardware.health@2.0::ISehHealth, which the donor framework uses when the AIDL
+# IHealth/default is not declared. The vendor-a17 image declares it for the Pixel image's health shim; hide that fragment here (bind mount of an empty manifest, vendor stays untouched)
+# before servicemanager reads the manifests. Samsung's BatteryService takes its HealthInfo only from ISehHealth (AOSP BatteryService.update(HealthInfo) is an empty stub).
+on early-init
+    mount none /system/etc/vintf/oneui_empty_manifest.xml /vendor/etc/vintf/manifest/android.hardware.health-aidl.xml bind

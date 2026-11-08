@@ -1,0 +1,13 @@
+on post-fs-data
+    mkdir /data/local/tmp/compass 0777 root root
+    chmod 0777 /data/local/tmp/compass
+
+service compassd /system/bin/app_process -Djava.class.path=/system/etc/compassd.jar /system/bin compass.CompassDaemon
+    class late_start
+    disabled
+    user system
+    group system
+    seclabel u:r:su:s0
+
+on property:sys.boot_completed=1
+    start compassd

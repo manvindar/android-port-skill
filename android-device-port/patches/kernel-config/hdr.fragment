@@ -1,0 +1,2 @@
+# boost build + HDR10 default for the panel
+CONFIG_LOCALVERSION="-a17-boost-hdr2"

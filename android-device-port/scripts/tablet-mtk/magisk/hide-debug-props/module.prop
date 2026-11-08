@@ -1,0 +1,6 @@
+id=hide-debug-props
+name=Hide debug build flags
+version=1
+versionCode=1
+author=manvindar
+description=Sets ro.debuggable=0 and ro.secure=1 after boot so apps with an integrity check (LG ThinQ) start. adbd keeps the root it started with.

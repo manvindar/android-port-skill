@@ -1,0 +1,12 @@
+# Kernel 4.9 (CONFIG_RT_GROUP_SCHED): every cpu cgroup under /dev/cpuctl starts with rt_runtime_us=0, so SCHED_FIFO requests fail
+# (bluetooth: "main_thread_start_up: unable to enable real time scheduling" -> abort; surfaceflinger, audio ...). Give the groups a share of the root's 950000.
+on init
+    write /dev/cpuctl/rt/cpu.rt_runtime_us 200000
+    write /dev/cpuctl/system/cpu.rt_runtime_us 200000
+    write /dev/cpuctl/foreground/cpu.rt_runtime_us 150000
+    write /dev/cpuctl/top-app/cpu.rt_runtime_us 150000
+    write /dev/cpuctl/foreground_window/cpu.rt_runtime_us 100000
+    write /dev/cpuctl/camera-daemon/cpu.rt_runtime_us 50000
+    write /dev/cpuctl/nnapi-hal/cpu.rt_runtime_us 20000
+    write /dev/cpuctl/system-background/cpu.rt_runtime_us 20000
+    write /dev/cpuctl/background/cpu.rt_runtime_us 20000

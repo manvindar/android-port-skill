@@ -1,0 +1,326 @@
+name: Build image
+
+# Builds the patched Android 17 system images (gapps and nogapps) for the Lenovo TB-X606V from public inputs and optionally publishes them as a release.
+# Not included (proprietary or tablet-specific): Dolby Atmos, the vendor edits (tools/scripts/apply_vendor_a17.sh, applied by install_a17.sh) and compiled app code (the image compiles itself on first boot).
+#
+# mode "check" only downloads the GSI and runs build/check_patches.py (a minute or two): it lists every patch that no longer applies to that GSI build, all at once.
+# The big downloads (GSI zip, donor 7z) are cached by checksum, so a repeated or re-run build does not fetch them again.
+on:
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: plain = the public images (no Pixel apps, no Dolby); pixel = the Pixel Tablet edition (publishes the Google apps image, see docs/PIXEL.md)
+        type: choice
+        options: [plain, pixel]
+        default: plain
+      mode:
+        description: check = only test which patches apply to the GSI; build = build the images
+        type: choice
+        options: [build, check]
+        default: build
+      publish:
+        description: Publish a GitHub release with the images (build mode)
+        type: boolean
+        default: false
+      tag:
+        description: Release tag (used when publishing), e.g. v17-dp11-261016-pixel-r6 for the pixel edition
+        default: v17-dp11-ci
+      notes_file:
+        description: Release notes file in the repo (pixel edition)
+        default: docs/RELEASE_NOTES_PIXEL.md
+      dolby_from_tag:
+        description: pixel edition - release whose image supplies the Dolby Atmos files (they are Lenovo/Dolby files, not in the repo)
+        default: v17-dp11-261016-pixel-r5
+      gsi_build:
+        description: Build id of the GSI (for the log and release title), e.g. DP11.261016.003; empty = the build set in this file
+        default: ''
+      gsi_url:
+        description: Google GSI zip (aosp_arm64) to patch; empty = the build set in this file
+        default: ''
+      gsi_zip_sha256:
+        description: SHA-256 of that zip as published by Google (required with gsi_url)
+        default: ''
+  push:
+    tags: ['a17-v*']
+
+env:
+  # exp branch: the newest GSI, DP11.261016.003 (October 29, 2026). main builds DP11.261002.005, the build the patches were developed and tested on.
+  GSI_BUILD: ${{ inputs.gsi_build || (inputs.gsi_url && 'custom' || 'DP11.261016.003') }}
+  GSI_URL: ${{ inputs.gsi_url || 'https://dl.google.com/developers/android/cinnamonbun/images/gsi/aosp_arm64-exp-DP11.261016.003-16708287-d735a3b1.zip' }}
+  GSI_ZIP_SHA256: ${{ inputs.gsi_zip_sha256 || 'd735a3b11fe1b76a736f325f5500f7211167642fe2ed39dae0cf530d1cf51436' }}
+  DONOR_URL: https://sourceforge.net/projects/misterztr-gsi/files/LineageOS/Android%2016/LineageOS-23.2-20260524-GAPPS-EXT4-GSI.7z/download
+  DONOR_7Z_SHA256: 22b3c069445cc3d54819361a1636f7b27ff455dc547f300b868cecddb1b2e22d
+  DONOR_IMG: LineageOS-23.2-20260524-GAPPS-EXT4-GSI.img
+
+jobs:
+  build:
+    if: ${{ inputs.edition != 'pixel' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Android 16 port repo (ROM Tuner, boot animations)
+        if: inputs.mode != 'check'
+        uses: actions/checkout@v7
+        with:
+          repository: manvindar/tb-x606v-android16-port
+          path: port
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          df -h /
+
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.12' }
+
+      - uses: mlugg/setup-zig@v2
+        if: inputs.mode != 'check'
+        with: { version: 0.14.1 }
+
+      - uses: actions/setup-java@v6
+        if: inputs.mode != 'check'
+        with: { distribution: temurin, java-version: '17' }
+
+      - uses: android-actions/setup-android@v4
+        if: inputs.mode != 'check'
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs erofs-utils p7zip-full xz-utils zip unzip openssl
+          pip install capstone pyelftools lz4
+          if [ "${{ inputs.mode }}" != "check" ]; then
+            sdkmanager "build-tools;35.0.0" "platforms;android-34"
+            zig version
+          fi
+          debugfs -V; fsck.erofs --help 2>&1 | head -1
+
+      - name: Cached GSI zip
+        id: gsicache
+        uses: actions/cache/restore@v6
+        with:
+          path: gsi.zip
+          key: gsi-${{ env.GSI_ZIP_SHA256 }}
+
+      - name: Download Google's Android 17 GSI (${{ env.GSI_BUILD }})
+        run: |
+          echo "GSI build ${GSI_BUILD}: ${GSI_URL}"
+          if [ ! -f gsi.zip ]; then curl -L --fail --retry 5 --retry-delay 10 -o gsi.zip "$GSI_URL"; else echo "gsi.zip restored from the cache"; fi
+          echo "$GSI_ZIP_SHA256  gsi.zip" | sha256sum -c -
+
+      - name: Cache the GSI zip
+        if: steps.gsicache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: gsi.zip
+          key: gsi-${{ env.GSI_ZIP_SHA256 }}
+
+      - name: Unpack the GSI
+        run: |
+          unzip -o -q gsi.zip system.img && rm gsi.zip
+          sha256sum system.img
+
+      - name: Which patches apply to this GSI
+        run: python build/check_patches.py system.img
+        continue-on-error: ${{ inputs.mode != 'check' }}
+
+      - name: Cached donor
+        if: inputs.mode != 'check'
+        id: donorcache
+        uses: actions/cache/restore@v6
+        with:
+          path: donor.7z
+          key: donor-${{ env.DONOR_7Z_SHA256 }}
+
+      - name: Download the LineageOS 23.2 GSI (donor)
+        if: inputs.mode != 'check'
+        run: |
+          if [ ! -f donor.7z ]; then curl -L --fail --retry 5 --retry-delay 10 -o donor.7z "$DONOR_URL"; else echo "donor.7z restored from the cache"; fi
+          echo "$DONOR_7Z_SHA256  donor.7z" | sha256sum -c -
+
+      - name: Cache the donor
+        if: inputs.mode != 'check' && steps.donorcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: donor.7z
+          key: donor-${{ env.DONOR_7Z_SHA256 }}
+
+      - name: Unpack the donor
+        if: inputs.mode != 'check'
+        run: |
+          7z x -y donor.7z "$DONOR_IMG" && rm donor.7z
+          ls -la "$DONOR_IMG"
+
+      - name: Download MindTheGapps
+        if: inputs.mode != 'check'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO=MindTheGapps/16.0.0-arm64
+          TAG=$(gh release list -R $REPO --limit 1 --json tagName -q '.[0].tagName')
+          mkdir gapps && cd gapps && gh release download "$TAG" -R $REPO -p '*.zip' -p '*.sha256sum'
+          sha256sum -c *.sha256sum
+
+      - name: Build the images
+        if: inputs.mode != 'check'
+        run: |
+          python build/build_image17.py --gsi system.img --donor "$DONOR_IMG" --out system-a17-nogapps.img \
+            --gapps gapps/*.zip --out-gapps system-a17-gapps.img --port-repo port \
+            --build-tools "$ANDROID_HOME/build-tools/35.0.0"
+          rm system.img "$DONOR_IMG"
+          ls -la *.img
+
+      - name: Check the images
+        if: inputs.mode != 'check'
+        run: |
+          for f in system-a17-nogapps.img system-a17-gapps.img; do
+            [ "$(stat -c %s $f)" = 4085252096 ]
+            e2fsck -fn $f
+          done
+          debugfs -R 'ls -l /system/lib64/a16audio' system-a17-nogapps.img | wc -l
+          debugfs -R 'stat /system/product/priv-app/GmsCore/GmsCore.apk' system-a17-gapps.img | head -1
+
+      - name: Compress
+        if: inputs.mode != 'check'
+        run: |
+          xz -T0 -6 -c system-a17-gapps.img > system-a17-tb-x606v-gapps-nodexopt.img.xz
+          xz -T0 -6 -c system-a17-nogapps.img > system-a17-tb-x606v-nogapps-nodexopt.img.xz
+          rm system-a17-gapps.img system-a17-nogapps.img
+          sha256sum *.img.xz | tee SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.mode != 'check'
+        with:
+          name: system-a17-tb-x606v-${{ env.GSI_BUILD }}
+          path: |
+            system-a17-tb-x606v-*.img.xz
+            SHA256SUMS.txt
+          retention-days: 14
+          compression-level: 0
+
+      - name: Publish release
+        if: ${{ inputs.mode != 'check' && (github.event_name == 'push' || inputs.publish) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" system-a17-tb-x606v-*.img.xz SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" system-a17-tb-x606v-*.img.xz SHA256SUMS.txt --prerelease \
+              --title "Android 17 ($GSI_BUILD) for TB-X606V, built by GitHub Actions ($TAG)" --notes-file docs/RELEASE_NOTES_CI.md
+          fi
+
+  pixel:
+    # Pixel Tablet edition: the same build as the local r1..r5 images, from Google's public downloads (GSI, Pixel Tablet factory image, MindTheGapps) and the Dolby files of an earlier release
+    if: ${{ inputs.edition == 'pixel' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    env:
+      FACTORY_URL: https://dl.google.com/developers/android/cinnamonbun/images/factory/tangorpro_beta-dp11.261016.003-factory-2ae15424.zip
+      FACTORY_SHA256: 2ae15424fce266a2b8259ff7ae16e258c3f7bf321ae20b2662ba010e6caa031c
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: manvindar/tb-x606v-android16-port
+          path: port
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          df -h /
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.12' }
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.14.1 }
+      - uses: actions/setup-java@v6
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs erofs-utils p7zip-full xz-utils zip unzip openssl
+          pip install capstone pyelftools lz4
+          sdkmanager "build-tools;35.0.0" "platforms;android-34"
+      - name: Google's Android 17 GSI
+        run: |
+          curl -L --fail --retry 5 --retry-delay 10 -o gsi.zip "$GSI_URL"
+          echo "$GSI_ZIP_SHA256  gsi.zip" | sha256sum -c -
+          unzip -o -q gsi.zip system.img && rm gsi.zip
+      - name: LineageOS 23.2 GSI (donor)
+        run: |
+          curl -L --fail --retry 5 --retry-delay 10 -o donor.7z "$DONOR_URL"
+          echo "$DONOR_7Z_SHA256  donor.7z" | sha256sum -c -
+          7z x -y donor.7z "$DONOR_IMG" && rm donor.7z
+      - name: MindTheGapps
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO=MindTheGapps/16.0.0-arm64
+          TAG=$(gh release list -R $REPO --limit 1 --json tagName -q '.[0].tagName')
+          mkdir gapps && cd gapps && gh release download "$TAG" -R $REPO -p '*.zip' -p '*.sha256sum'
+          sha256sum -c *.sha256sum
+      - name: Pixel Tablet pieces from Google's factory image
+        run: |
+          curl -L --fail --retry 5 --retry-delay 10 -o factory.zip "$FACTORY_URL"
+          echo "$FACTORY_SHA256  factory.zip" | sha256sum -c -
+          python3 tools/pixel/stage_pixel_tablet.py factory.zip pixel_stage --build-tools "$ANDROID_HOME/build-tools/35.0.0"
+          rm factory.zip; df -h /
+      - name: Dolby Atmos files from an earlier release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.dolby_from_tag }}" -p 'system-a17-*.img.xz' -D prev
+          xz -dc prev/*.img.xz > prev.img && rm -r prev
+          mkdir dolby
+          debugfs -R 'dump /system/app/DaxUI/DaxUI.apk dolby/DaxUI.apk' prev.img
+          debugfs -R 'dump /system/product/priv-app/daxService/daxService.apk dolby/daxService.patched.apk' prev.img
+          debugfs -R 'dump /system/product/etc/permissions/com.dolby.daxservice.xml dolby/com.dolby.daxservice.xml' prev.img
+          rm prev.img; ls -la dolby; for f in dolby/*; do [ -s "$f" ]; done
+      - name: Build the images
+        run: |
+          python build/build_image17.py --gsi system.img --donor "$DONOR_IMG" --out system-a17-pixel.img \
+            --gapps gapps/*.zip --out-gapps system-a17-pixel-gapps.img --port-repo port \
+            --pixel-tablet pixel_stage --dolby dolby --dev-tools --platform-keys tools/pixel \
+            --build-tools "$ANDROID_HOME/build-tools/35.0.0"
+          rm system.img "$DONOR_IMG" system-a17-pixel.img
+          ls -la *.img
+      - name: Check the image
+        run: |
+          [ "$(stat -c %s system-a17-pixel-gapps.img)" = 4085252096 ]
+          e2fsck -fn system-a17-pixel-gapps.img
+          debugfs -R 'stat /system/etc/permissions/android.hardware.telephony.a17.xml' system-a17-pixel-gapps.img | head -1
+      - name: Compress
+        run: |
+          NAME=system-a17-tb-x606v-pixel-tablet-dp11-261016-${TAG##*-}.img.xz
+          xz -T0 -6 -c system-a17-pixel-gapps.img > "$NAME"
+          rm system-a17-pixel-gapps.img
+          sha256sum "$NAME" | tee SHA256SUMS.txt
+        env:
+          TAG: ${{ inputs.tag }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: system-a17-tb-x606v-pixel-tablet
+          path: |
+            system-a17-tb-x606v-pixel-tablet-*.img.xz
+            SHA256SUMS.txt
+          retention-days: 14
+          compression-level: 0
+      - name: Publish release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" system-a17-tb-x606v-pixel-tablet-*.img.xz SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" system-a17-tb-x606v-pixel-tablet-*.img.xz SHA256SUMS.txt --latest \
+              --title "Android 17 DP11 Pixel Tablet edition (${TAG##*-}), built by GitHub Actions" --notes-file "${{ inputs.notes_file }}"
+          fi

@@ -1,0 +1,6 @@
+id=telephony-features
+name=Telephony sub-features for the Android 10 vendor
+version=1
+versionCode=1
+author=manvindar
+description=Declares android.hardware.telephony.{radio.access,calling,data,messaging} so Android 17 telephony opens the vendor HIDL radio. Same file as tools/telephony in the ROM image.

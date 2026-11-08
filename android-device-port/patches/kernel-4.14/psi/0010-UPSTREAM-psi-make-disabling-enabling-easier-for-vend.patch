@@ -1,0 +1,246 @@
+From 978392049e485f5748a2066433fe29ea6e392e68 Mon Sep 17 00:00:00 2001
+From: Johannes Weiner <hannes@cmpxchg.org>
+Date: Fri, 30 Nov 2018 14:09:58 -0800
+Subject: [PATCH] UPSTREAM: psi: make disabling/enabling easier for vendor
+ kernels
+
+Mel Gorman reports a hackbench regression with psi that would prohibit
+shipping the suse kernel with it default-enabled, but he'd still like
+users to be able to opt in at little to no cost to others.
+
+With the current combination of CONFIG_PSI and the psi_disabled bool set
+from the commandline, this is a challenge.  Do the following things to
+make it easier:
+
+1. Add a config option CONFIG_PSI_DEFAULT_DISABLED that allows distros
+   to enable CONFIG_PSI in their kernel but leave the feature disabled
+   unless a user requests it at boot-time.
+
+   To avoid double negatives, rename psi_disabled= to psi=.
+
+2. Make psi_disabled a static branch to eliminate any branch costs
+   when the feature is disabled.
+
+In terms of numbers before and after this patch, Mel says:
+
+: The following is a comparision using CONFIG_PSI=n as a baseline against
+: your patch and a vanilla kernel
+:
+:                          4.20.0-rc4             4.20.0-rc4             4.20.0-rc4
+:                 kconfigdisable-v1r1                vanilla        psidisable-v1r1
+: Amean     1       1.3100 (   0.00%)      1.3923 (  -6.28%)      1.3427 (  -2.49%)
+: Amean     3       3.8860 (   0.00%)      4.1230 *  -6.10%*      3.8860 (  -0.00%)
+: Amean     5       6.8847 (   0.00%)      8.0390 * -16.77%*      6.7727 (   1.63%)
+: Amean     7       9.9310 (   0.00%)     10.8367 *  -9.12%*      9.9910 (  -0.60%)
+: Amean     12     16.6577 (   0.00%)     18.2363 *  -9.48%*     17.1083 (  -2.71%)
+: Amean     18     26.5133 (   0.00%)     27.8833 *  -5.17%*     25.7663 (   2.82%)
+: Amean     24     34.3003 (   0.00%)     34.6830 (  -1.12%)     32.0450 (   6.58%)
+: Amean     30     40.0063 (   0.00%)     40.5800 (  -1.43%)     41.5087 (  -3.76%)
+: Amean     32     40.1407 (   0.00%)     41.2273 (  -2.71%)     39.9417 (   0.50%)
+:
+: It's showing that the vanilla kernel takes a hit (as the bisection
+: indicated it would) and that disabling PSI by default is reasonably
+: close in terms of performance for this particular workload on this
+: particular machine so;
+
+Link: http://lkml.kernel.org/r/20181127165329.GA29728@cmpxchg.org
+Signed-off-by: Johannes Weiner <hannes@cmpxchg.org>
+Tested-by: Mel Gorman <mgorman@techsingularity.net>
+Reported-by: Mel Gorman <mgorman@techsingularity.net>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+
+(cherry picked from commit e0c274472d5d27f277af722e017525e0b33784cd)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: I6cb666fa351e8901df82e4d6931bfec0c5ce230d
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index 98c95029ec3..3971554ca0d 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -3325,6 +3325,10 @@
+ 			before loading.
+ 			See Documentation/blockdev/ramdisk.txt.
+ 
++	psi=		[KNL] Enable or disable pressure stall information
++			tracking.
++			Format: <bool>
++
+ 	psmouse.proto=	[HW,MOUSE] Highest PS2 mouse protocol extension to
+ 			probe for; one of (bare|imps|exps|lifebook|any).
+ 	psmouse.rate=	[HW,MOUSE] Set desired mouse report rate, in reports
+diff --git a/include/linux/psi.h b/include/linux/psi.h
+index 3d759c00df7..cf6f56d959e 100644
+--- a/include/linux/psi.h
++++ b/include/linux/psi.h
+@@ -1,6 +1,7 @@
+ #ifndef _LINUX_PSI_H
+ #define _LINUX_PSI_H
+ 
++#include <linux/jump_label.h>
+ #include <linux/psi_types.h>
+ #include <linux/sched.h>
+ #include <linux/cgroup-defs.h>
+@@ -10,7 +11,7 @@ struct css_set;
+ 
+ #ifdef CONFIG_PSI
+ 
+-extern bool psi_disabled;
++extern struct static_key_false psi_disabled;
+ 
+ void psi_init(void);
+ 
+diff --git a/init/Kconfig b/init/Kconfig
+index 418af46f5d6..26c554bc65d 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -498,6 +498,15 @@ config PSI
+ 
+ 	  Say N if unsure.
+ 
++config PSI_DEFAULT_DISABLED
++	bool "Require boot parameter to enable pressure stall information tracking"
++	default n
++	depends on PSI
++	help
++	  If set, pressure stall information tracking will be disabled
++	  per default but can be enabled through passing psi_enable=1
++	  on the kernel commandline during boot.
++
+ endmenu # "CPU/Task time and stats accounting"
+ 
+ source "kernel/rcu/Kconfig"
+diff --git a/kernel/sched/psi.c b/kernel/sched/psi.c
+index 3d7355d7c3e..fe24de3fbc9 100644
+--- a/kernel/sched/psi.c
++++ b/kernel/sched/psi.c
+@@ -136,8 +136,18 @@
+ 
+ static int psi_bug __read_mostly;
+ 
+-bool psi_disabled __read_mostly;
+-core_param(psi_disabled, psi_disabled, bool, 0644);
++DEFINE_STATIC_KEY_FALSE(psi_disabled);
++
++#ifdef CONFIG_PSI_DEFAULT_DISABLED
++bool psi_enable;
++#else
++bool psi_enable = true;
++#endif
++static int __init setup_psi(char *str)
++{
++	return kstrtobool(str, &psi_enable) == 0;
++}
++__setup("psi=", setup_psi);
+ 
+ /* Running averages - we need to be higher-res than loadavg */
+ #define PSI_FREQ	(2*HZ+1)	/* 2 sec intervals */
+@@ -169,8 +179,10 @@ static void group_init(struct psi_group *group)
+ 
+ void __init psi_init(void)
+ {
+-	if (psi_disabled)
++	if (!psi_enable) {
++		static_branch_enable(&psi_disabled);
+ 		return;
++	}
+ 
+ 	psi_period = jiffies_to_nsecs(PSI_FREQ);
+ 	group_init(&psi_system);
+@@ -549,7 +561,7 @@ void psi_memstall_enter(unsigned long *flags)
+ 	struct rq_flags rf;
+ 	struct rq *rq;
+ 
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return;
+ 
+ 	*flags = current->flags & PF_MEMSTALL;
+@@ -579,7 +591,7 @@ void psi_memstall_leave(unsigned long *flags)
+ 	struct rq_flags rf;
+ 	struct rq *rq;
+ 
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return;
+ 
+ 	if (*flags)
+@@ -600,7 +612,7 @@ void psi_memstall_leave(unsigned long *flags)
+ #ifdef CONFIG_CGROUPS
+ int psi_cgroup_alloc(struct cgroup *cgroup)
+ {
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return 0;
+ 
+ 	cgroup->psi.pcpu = alloc_percpu(struct psi_group_cpu);
+@@ -612,7 +624,7 @@ int psi_cgroup_alloc(struct cgroup *cgroup)
+ 
+ void psi_cgroup_free(struct cgroup *cgroup)
+ {
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return;
+ 
+ 	cancel_delayed_work_sync(&cgroup->psi.clock_work);
+@@ -637,7 +649,7 @@ void cgroup_move_task(struct task_struct *task, struct css_set *to)
+ 	struct rq_flags rf;
+ 	struct rq *rq;
+ 
+-	if (psi_disabled) {
++	if (static_branch_likely(&psi_disabled)) {
+ 		/*
+ 		 * Lame to do this here, but the scheduler cannot be locked
+ 		 * from the outside, so we move cgroups from inside sched/.
+@@ -673,7 +685,7 @@ int psi_show(struct seq_file *m, struct psi_group *group, enum psi_res res)
+ {
+ 	int full;
+ 
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return -EOPNOTSUPP;
+ 
+ 	update_stats(group);
+diff --git a/kernel/sched/stats.h b/kernel/sched/stats.h
+index 8ee534f7ac4..5d30f4b7d34 100644
+--- a/kernel/sched/stats.h
++++ b/kernel/sched/stats.h
+@@ -66,7 +66,7 @@ static inline void psi_enqueue(struct task_struct *p, bool wakeup)
+ {
+ 	int clear = 0, set = TSK_RUNNING;
+ 
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return;
+ 
+ 	if (!wakeup || p->sched_psi_wake_requeue) {
+@@ -86,7 +86,7 @@ static inline void psi_dequeue(struct task_struct *p, bool sleep)
+ {
+ 	int clear = TSK_RUNNING, set = 0;
+ 
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return;
+ 
+ 	if (!sleep) {
+@@ -102,7 +102,7 @@ static inline void psi_dequeue(struct task_struct *p, bool sleep)
+ 
+ static inline void psi_ttwu_dequeue(struct task_struct *p)
+ {
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return;
+ 	/*
+ 	 * Is the task being migrated during a wakeup? Make sure to
+@@ -128,7 +128,7 @@ static inline void psi_ttwu_dequeue(struct task_struct *p)
+ 
+ static inline void psi_task_tick(struct rq *rq)
+ {
+-	if (psi_disabled)
++	if (static_branch_likely(&psi_disabled))
+ 		return;
+ 
+ 	if (unlikely(rq->curr->flags & PF_MEMSTALL))

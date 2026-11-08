@@ -1,0 +1,24 @@
+From: TB-X606V kernel project
+Subject: [PATCH] cgroup: ignore cgroup2 mount options instead of failing with EINVAL
+
+Android 17 libprocessgroup mounts cgroup2 with memory_recursiveprot (Linux 5.7). A 4.9 kernel rejects every cgroup2
+option, so SetupCgroups fails, /sys/fs/cgroup never mounts and ueventd/apexd-bootstrap cannot start.
+
+---
+diff --git a/kernel/cgroup.c b/kernel/cgroup.c
+--- a/kernel/cgroup.c
++++ b/kernel/cgroup.c
+@@ -2111,11 +2111,8 @@
+ 		cgroup_enable_task_cg_lists();
+ 
+ 	if (is_v2) {
+-		if (data) {
+-			pr_err("cgroup2: unknown option \"%s\"\n", (char *)data);
+-			put_cgroup_ns(ns);
+-			return ERR_PTR(-EINVAL);
+-		}
++		if (data)	/* Android 17 passes nsdelegate/memory_recursiveprot (5.x options); 4.9 has none, ignore them */
++			pr_info("cgroup2: ignoring mount options \"%s\"\n", (char *)data);
+ 		cgrp_dfl_visible = true;
+ 		root = &cgrp_dfl_root;
+ 		cgroup_get(&root->cgrp);

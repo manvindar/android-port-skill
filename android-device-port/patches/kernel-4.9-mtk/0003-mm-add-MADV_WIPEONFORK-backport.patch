@@ -1,0 +1,93 @@
+From: TB-X606V kernel project
+Subject: [PATCH] mm: add MADV_WIPEONFORK / MADV_KEEPONFORK (backport to 4.9)
+
+Backport of upstream d2cd9ede6e19 (Linux 4.14). Android 17 bionic calls madvise(MADV_WIPEONFORK) for its
+arc4random state at process start and aborts when it returns EINVAL, so on a 4.9 kernel every process,
+starting with init, dies before it logs anything.
+
+---
+diff --git a/include/linux/mm.h b/include/linux/mm.h
+--- a/include/linux/mm.h
++++ b/include/linux/mm.h
+@@ -187,7 +187,8 @@
+ #define VM_NORESERVE	0x00200000	/* should the VM suppress accounting */
+ #define VM_HUGETLB	0x00400000	/* Huge TLB Page VM */
+ #define VM_ARCH_1	0x01000000	/* Architecture-specific flag */
+-#define VM_ARCH_2	0x02000000
++#define VM_ARCH_2	0x02000000	/* x86 MPX only; arm64 uses this bit for VM_WIPEONFORK */
++#define VM_WIPEONFORK	0x02000000	/* Wipe VMA contents in child. */
+ #define VM_DONTDUMP	0x04000000	/* Do not include in the core dump */
+ 
+ #ifdef CONFIG_MEM_SOFT_DIRTY
+diff --git a/include/uapi/asm-generic/mman-common.h b/include/uapi/asm-generic/mman-common.h
+--- a/include/uapi/asm-generic/mman-common.h
++++ b/include/uapi/asm-generic/mman-common.h
+@@ -58,6 +58,9 @@
+ 					   overrides the coredump filter bits */
+ #define MADV_DODUMP	17		/* Clear the MADV_DONTDUMP flag */
+ 
++#define MADV_WIPEONFORK 18		/* Zero memory on fork, child only */
++#define MADV_KEEPONFORK 19		/* Undo MADV_WIPEONFORK */
++
+ /* compatibility flags */
+ #define MAP_FILE	0
+ 
+diff --git a/mm/madvise.c b/mm/madvise.c
+--- a/mm/madvise.c
++++ b/mm/madvise.c
+@@ -86,6 +86,17 @@
+ 			goto out;
+ 		}
+ 		new_flags &= ~VM_DONTDUMP;
++		break;
++	case MADV_WIPEONFORK:
++		/* MADV_WIPEONFORK is only supported on anonymous memory. */
++		if (vma->vm_file || vma->vm_flags & VM_SHARED) {
++			error = -EINVAL;
++			goto out;
++		}
++		new_flags |= VM_WIPEONFORK;
++		break;
++	case MADV_KEEPONFORK:
++		new_flags &= ~VM_WIPEONFORK;
+ 		break;
+ 	case MADV_MERGEABLE:
+ 	case MADV_UNMERGEABLE:
+@@ -617,6 +628,8 @@
+ #endif
+ 	case MADV_DONTDUMP:
+ 	case MADV_DODUMP:
++	case MADV_WIPEONFORK:
++	case MADV_KEEPONFORK:
+ 		return true;
+ 
+ 	default:
+diff --git a/kernel/fork.c b/kernel/fork.c
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -635,7 +635,14 @@
+ 		if (retval)
+ 			goto fail_nomem_policy;
+ 		tmp->vm_mm = mm;
+-		if (anon_vma_fork(tmp, mpnt))
++		if (tmp->vm_flags & VM_WIPEONFORK) {
++			/*
++			 * VM_WIPEONFORK gets a clean slate in the child.
++			 * Don't prepare anon_vma until fault since we don't
++			 * copy page for current vma.
++			 */
++			tmp->anon_vma = NULL;
++		} else if (anon_vma_fork(tmp, mpnt))
+ 			goto fail_nomem_anon_vma_fork;
+ 		tmp->vm_flags &=
+ 			~(VM_LOCKED|VM_LOCKONFAULT|VM_UFFD_MISSING|VM_UFFD_WP);
+@@ -681,7 +688,8 @@
+ 		rb_parent = &tmp->vm_rb;
+ 
+ 		mm->map_count++;
+-		retval = copy_page_range(mm, oldmm, mpnt);
++		if (!(tmp->vm_flags & VM_WIPEONFORK))
++			retval = copy_page_range(mm, oldmm, mpnt);
+ 
+ 		if (tmp->vm_ops && tmp->vm_ops->open)
+ 			tmp->vm_ops->open(tmp);

@@ -1,0 +1,11 @@
+# Applied when the workflow input "fragment" is true. Android 17 wants these; the stock 4.14.113 config may lack them.
+CONFIG_PSI=y
+CONFIG_PSI_DEFAULT_DISABLED=n
+CONFIG_MEMCG=y
+CONFIG_MEMCG_SWAP=y
+CONFIG_CGROUP_BPF=y
+CONFIG_BPF_SYSCALL=y
+CONFIG_SCHEDSTATS=y
+CONFIG_BPF_JIT=y
+CONFIG_BPF_JIT_ALWAYS_ON=y
+CONFIG_USERFAULTFD=y

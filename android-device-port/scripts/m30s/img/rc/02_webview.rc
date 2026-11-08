@@ -1,0 +1,12 @@
+# The Samsung vendor's /vendor/overlay/GmsConfigOverlayCommon.apk replaces the WebView provider list with Google packages, so no provider is chosen
+# automatically and every WebView app dies with "No WebView installed". Choose the system WebView (idempotent; the choice is kept in Settings.Global webview_provider).
+# A service rather than `exec`: init needs a domain transition for the binary (cmd is system_file), the shell domain is the one `adb shell cmd` runs in.
+service webview_pick /system/bin/cmd webviewupdate set-webview-implementation com.android.webview
+    user root
+    group root
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+on property:sys.boot_completed=1
+    start webview_pick

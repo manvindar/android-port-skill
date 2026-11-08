@@ -1,0 +1,32 @@
+diff --git a/drivers/misc/mediatek/video/include/disp_session.h b/drivers/misc/mediatek/video/include/disp_session.h
+index f9fe4fcdb..655fe8cd2 100644
+--- a/drivers/misc/mediatek/video/include/disp_session.h
++++ b/drivers/misc/mediatek/video/include/disp_session.h
+@@ -443,6 +443,12 @@ struct disp_caps_info {
+ 	 *  0: not support three session at same time
+ 	 */
+ 	int is_support_three_session;
++
++	/* fields appended by the stock 4.9.190 vendor ABI (struct is 156 bytes there) */
++	int lcm_color_mode;
++	unsigned int max_luminance;
++	unsigned int average_luminance;
++	unsigned int min_luminance;
+ };
+ 
+ struct disp_session_buf_info {
+diff --git a/drivers/misc/mediatek/video/mt6765/videox/compat_mtk_disp_mgr.h b/drivers/misc/mediatek/video/mt6765/videox/compat_mtk_disp_mgr.h
+index 5fdd7baca..c21383d3c 100644
+--- a/drivers/misc/mediatek/video/mt6765/videox/compat_mtk_disp_mgr.h
++++ b/drivers/misc/mediatek/video/mt6765/videox/compat_mtk_disp_mgr.h
+@@ -150,6 +150,10 @@ struct compat_disp_caps_info {
+ 	compat_uint_t rsz_list_length;
+ 	compat_uint_t rsz_in_max[2];
+ 	compat_int_t is_support_three_session;
++	compat_int_t lcm_color_mode;
++	compat_uint_t max_luminance;
++	compat_uint_t average_luminance;
++	compat_uint_t min_luminance;
+ };
+ 
+ 

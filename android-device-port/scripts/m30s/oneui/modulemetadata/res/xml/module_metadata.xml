@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No per-module names: PackageManagerService.getInstalledModules only needs the metadata package to load (it throws "before metadata loaded" otherwise, and ActivityManager.systemReady calls it).
+     The donor's own package comes from a Google-only product partition that this image does not have. -->
+<module-metadata />

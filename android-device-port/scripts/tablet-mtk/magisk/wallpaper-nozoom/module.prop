@@ -1,0 +1,6 @@
+id=wallpaper-nozoom
+name=No wallpaper zoom (app drawer smoothness)
+version=1
+versionCode=1
+author=manvindar
+description=Static overlay config_wallpaperMaxScale=1.0: the launcher's per-frame wallpaper zoom made SurfaceFlinger redraw the wallpaper on the GPU every frame. Same overlay as in the ROM image from r7.

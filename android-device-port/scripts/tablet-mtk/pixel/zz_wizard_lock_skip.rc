@@ -1,0 +1,9 @@
+service wizard_lock_skip /system/bin/sh /system/bin/wizard_lock_skip.sh
+    user root
+    group root
+    seclabel u:r:init:s0
+    disabled
+    oneshot
+
+on property:sys.boot_completed=1
+    start wizard_lock_skip

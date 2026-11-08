@@ -1,0 +1,11 @@
+# The Samsung vendor fstab has no zram line, so the 5.6 GB phone ran Pixel + GMS with no swap (kswapd at 25%, almost no free RAM).
+# 3 GB of zstd zram; the kernel already has zram (zstd) and vm.swappiness is 130.
+service zram_setup /system/bin/sh -c "echo zstd > /sys/block/zram0/comp_algorithm; echo 3221225472 > /sys/block/zram0/disksize; mkswap /dev/block/zram0 && swapon -p 100 /dev/block/zram0"
+    user root
+    group root
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+on boot
+    start zram_setup

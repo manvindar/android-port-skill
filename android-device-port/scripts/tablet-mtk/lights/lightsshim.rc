@@ -1,0 +1,5 @@
+service lightsshim /system/bin/lightsshim.sh
+    class hal
+    user system
+    group system
+    seclabel u:r:su:s0

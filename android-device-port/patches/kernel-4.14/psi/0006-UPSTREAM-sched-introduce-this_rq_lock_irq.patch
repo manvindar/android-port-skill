@@ -1,0 +1,71 @@
+From 0a48a70eb393cf96558df2c99d88bdcd5c9a34e6 Mon Sep 17 00:00:00 2001
+From: Johannes Weiner <hannes@cmpxchg.org>
+Date: Fri, 26 Oct 2018 15:06:23 -0700
+Subject: [PATCH] UPSTREAM: sched: introduce this_rq_lock_irq()
+
+do_sched_yield() disables IRQs, looks up this_rq() and locks it.  The next
+patch is adding another site with the same pattern, so provide a
+convenience function for it.
+
+Link: http://lkml.kernel.org/r/20180828172258.3185-8-hannes@cmpxchg.org
+Signed-off-by: Johannes Weiner <hannes@cmpxchg.org>
+Acked-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Tested-by: Suren Baghdasaryan <surenb@google.com>
+Tested-by: Daniel Drake <drake@endlessm.com>
+Cc: Christopher Lameter <cl@linux.com>
+Cc: Ingo Molnar <mingo@redhat.com>
+Cc: Johannes Weiner <jweiner@fb.com>
+Cc: Mike Galbraith <efault@gmx.de>
+Cc: Peter Enderborg <peter.enderborg@sony.com>
+Cc: Randy Dunlap <rdunlap@infradead.org>
+Cc: Shakeel Butt <shakeelb@google.com>
+Cc: Tejun Heo <tj@kernel.org>
+Cc: Vinayak Menon <vinmenon@codeaurora.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+
+(cherry picked from commit 246b3b3342c9b0a2e24cda2178be87bc36e1c874)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: I24b42cff1624c80633f116b7cb485564f53a30a7
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index c5266383853..9483a8046a5 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -4882,9 +4882,7 @@ SYSCALL_DEFINE0(sched_yield)
+ 	struct rq_flags rf;
+ 	struct rq *rq;
+ 
+-	local_irq_disable();
+-	rq = this_rq();
+-	rq_lock(rq, &rf);
++	rq = this_rq_lock_irq(&rf);
+ 
+ 	schedstat_inc(rq->yld_count);
+ 	current->sched_class->yield_task(rq);
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 753e7c560f2..4e6ca763269 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -1081,6 +1081,18 @@ rq_unlock(struct rq *rq, struct rq_flags *rf)
+ 	raw_spin_unlock(&rq->lock);
+ }
+ 
++static inline struct rq *
++this_rq_lock_irq(struct rq_flags *rf)
++	__acquires(rq->lock)
++{
++	struct rq *rq;
++
++	local_irq_disable();
++	rq = this_rq();
++	rq_lock(rq, rf);
++	return rq;
++}
++
+ #ifdef CONFIG_NUMA
+ enum numa_topology_type {
+ 	NUMA_DIRECT,

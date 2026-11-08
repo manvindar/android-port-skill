@@ -1,0 +1,1 @@
+/* graphics types are not needed for the sensors HAL */

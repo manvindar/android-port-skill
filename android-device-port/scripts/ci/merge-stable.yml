@@ -1,0 +1,35 @@
+name: Merge stable
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Upstream 4.14.y version to merge into Samsung's 4.14.113
+        default: "4.14.336"
+permissions:
+  contents: read
+env:
+  CDN: https://cdn.kernel.org/pub/linux/kernel/v4.x
+jobs:
+  merge:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch trees
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download source-SM-M307F_SWA_RR -p Kernel.tar.gz
+          mkdir ours && tar -xzf Kernel.tar.gz -C ours && rm Kernel.tar.gz
+          for v in 4.14.113 ${{ inputs.target }}; do
+            curl -sfL --retry 6 --retry-all-errors "$CDN/linux-$v.tar.xz" | tar xJ
+          done
+      - name: Merge
+        run: |
+          python3 scripts/merge_stable.py linux-4.14.113 linux-${{ inputs.target }} ours report.txt
+      - name: Package
+        run: |
+          mkdir out && cp report.txt out/
+          tar -C ours -czf out/merged-tree.tar.gz --exclude=.git .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: merge-${{ inputs.target }}
+          path: out

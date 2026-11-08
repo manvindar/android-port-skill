@@ -1,0 +1,10 @@
+on post-fs-data
+    mkdir /cache/bootdiag 0777 system system
+    start bootdiag
+
+service bootdiag /system/bin/sh /system/bin/bootdiag.sh
+    user root
+    group root system
+    seclabel u:r:init:s0
+    disabled
+    oneshot

@@ -1,0 +1,21 @@
+From: TB-X606V kernel project
+Subject: [PATCH] cgroup: accept the cpuset_v2_mode v1 mount option (as clone_children)
+
+Android 17 libprocessgroup mounts the v1 cpuset controller with ",noprefix,cpuset_v2_mode". 4.9 does not know the
+latter, parse_cgroupfs_options() returns -ENOENT and SetupCgroups fails. clone_children makes new cpusets inherit
+cpus/mems from the parent, which is the part of v2 mode Android depends on.
+
+---
+diff --git a/kernel/cgroup.c b/kernel/cgroup.c
+--- a/kernel/cgroup.c
++++ b/kernel/cgroup.c
+@@ -1731,7 +1731,8 @@
+ 			opts->flags |= CGRP_ROOT_NOPREFIX;
+ 			continue;
+ 		}
+-		if (!strcmp(token, "clone_children")) {
++		/* Android 17 mounts cpuset with "noprefix,cpuset_v2_mode"; clone_children gives the closest 4.9 behaviour */
++		if (!strcmp(token, "clone_children") || !strcmp(token, "cpuset_v2_mode")) {
+ 			opts->cpuset_clone_children = true;
+ 			continue;
+ 		}

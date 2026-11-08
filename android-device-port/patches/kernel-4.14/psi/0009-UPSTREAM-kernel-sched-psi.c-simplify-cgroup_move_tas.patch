@@ -1,0 +1,96 @@
+From 7b8aa973f7a3d6f9fbfd23b381de49b6cc5dec8d Mon Sep 17 00:00:00 2001
+From: Olof Johansson <olof@lixom.net>
+Date: Fri, 16 Nov 2018 15:08:00 -0800
+Subject: [PATCH] UPSTREAM: kernel/sched/psi.c: simplify cgroup_move_task()
+
+The existing code triggered an invalid warning about 'rq' possibly being
+used uninitialized.  Instead of doing the silly warning suppression by
+initializa it to NULL, refactor the code to bail out early instead.
+
+Warning was:
+
+  kernel/sched/psi.c: In function `cgroup_move_task':
+  kernel/sched/psi.c:639:13: warning: `rq' may be used uninitialized in this function [-Wmaybe-uninitialized]
+
+Link: http://lkml.kernel.org/r/20181103183339.8669-1-olof@lixom.net
+Fixes: 2ce7135adc9ad ("psi: cgroup support")
+Signed-off-by: Olof Johansson <olof@lixom.net>
+Reviewed-by: Andrew Morton <akpm@linux-foundation.org>
+Acked-by: Johannes Weiner <hannes@cmpxchg.org>
+Cc: Ingo Molnar <mingo@redhat.com>
+Cc: Peter Zijlstra <peterz@infradead.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+
+(cherry picked from commit 8fcb2312d1e3300e81aa871aad00d4c038cfc184)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: Id989da224a726082e0cfa5d5d9460bf63d448a93
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/kernel/sched/psi.c b/kernel/sched/psi.c
+index 7cdecfc010a..3d7355d7c3e 100644
+--- a/kernel/sched/psi.c
++++ b/kernel/sched/psi.c
+@@ -633,38 +633,39 @@ void psi_cgroup_free(struct cgroup *cgroup)
+  */
+ void cgroup_move_task(struct task_struct *task, struct css_set *to)
+ {
+-	bool move_psi = !psi_disabled;
+ 	unsigned int task_flags = 0;
+ 	struct rq_flags rf;
+ 	struct rq *rq;
+ 
+-	if (move_psi) {
+-		rq = task_rq_lock(task, &rf);
++	if (psi_disabled) {
++		/*
++		 * Lame to do this here, but the scheduler cannot be locked
++		 * from the outside, so we move cgroups from inside sched/.
++		 */
++		rcu_assign_pointer(task->cgroups, to);
++		return;
++	}
+ 
+-		if (task_on_rq_queued(task))
+-			task_flags = TSK_RUNNING;
+-		else if (task->in_iowait)
+-			task_flags = TSK_IOWAIT;
++	rq = task_rq_lock(task, &rf);
+ 
+-		if (task->flags & PF_MEMSTALL)
+-			task_flags |= TSK_MEMSTALL;
++	if (task_on_rq_queued(task))
++		task_flags = TSK_RUNNING;
++	else if (task->in_iowait)
++		task_flags = TSK_IOWAIT;
+ 
+-		if (task_flags)
+-			psi_task_change(task, task_flags, 0);
+-	}
++	if (task->flags & PF_MEMSTALL)
++		task_flags |= TSK_MEMSTALL;
+ 
+-	/*
+-	 * Lame to do this here, but the scheduler cannot be locked
+-	 * from the outside, so we move cgroups from inside sched/.
+-	 */
++	if (task_flags)
++		psi_task_change(task, task_flags, 0);
++
++	/* See comment above */
+ 	rcu_assign_pointer(task->cgroups, to);
+ 
+-	if (move_psi) {
+-		if (task_flags)
+-			psi_task_change(task, 0, task_flags);
++	if (task_flags)
++		psi_task_change(task, 0, task_flags);
+ 
+-		task_rq_unlock(rq, task, &rf);
+-	}
++	task_rq_unlock(rq, task, &rf);
+ }
+ #endif /* CONFIG_CGROUPS */
+ 

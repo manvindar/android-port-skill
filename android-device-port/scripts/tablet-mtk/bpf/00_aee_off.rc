@@ -1,0 +1,8 @@
+# A17 experiment: aee_aedv (MediaTek crash daemon) triggers a kernel oops in kobj_attr_show when it reads sysfs after an abnormal reset.
+# Defining the services here first makes init ignore the vendor definitions (first definition wins).
+service aee_aedv /system/bin/true
+    disabled
+    oneshot
+service aee_aedv64 /system/bin/true
+    disabled
+    oneshot

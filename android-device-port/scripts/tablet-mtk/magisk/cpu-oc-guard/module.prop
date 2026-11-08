@@ -1,0 +1,6 @@
+id=cpu-oc-guard
+name=CPU overclock guard
+version=1
+versionCode=1
+author=manvindar
+description=Caps the fast cluster (cpu0-3) at the stock 2.301 GHz as early as Magisk can, so a kernel whose OPP table has a 2.5 GHz step does not run it before the voltage trim is set. Raise the cap on purpose with scaling_max_freq.

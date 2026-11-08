@@ -1,0 +1,180 @@
+From 29d0475df1d10adc5e01914caa4a9dc010590cfa Mon Sep 17 00:00:00 2001
+From: Johannes Weiner <hannes@cmpxchg.org>
+Date: Thu, 31 Jan 2019 10:41:54 +1100
+Subject: [PATCH] BACKPORT: fs: kernfs: add poll file operation
+
+Patch series "psi: pressure stall monitors", v3.
+
+Android is adopting psi to detect and remedy memory pressure that results
+in stuttering and decreased responsiveness on mobile devices.
+
+Psi gives us the stall information, but because we're dealing with
+latencies in the millisecond range, periodically reading the pressure
+files to detect stalls in a timely fashion is not feasible.  Psi also
+doesn't aggregate its averages at a high enough frequency right now.
+
+This patch series extends the psi interface such that users can configure
+sensitive latency thresholds and use poll() and friends to be notified
+when these are breached.
+
+As high-frequency aggregation is costly, it implements an aggregation
+method that is optimized for fast, short-interval averaging, and makes the
+aggregation frequency adaptive, such that high-frequency updates only
+happen while monitored stall events are actively occurring.
+
+With these patches applied, Android can monitor for, and ward off,
+mounting memory shortages before they cause problems for the user.  For
+example, using memory stall monitors in userspace low memory killer daemon
+(lmkd) we can detect mounting pressure and kill less important processes
+before device becomes visibly sluggish.  In our memory stress testing psi
+memory monitors produce roughly 10x less false positives compared to
+vmpressure signals.  Having ability to specify multiple triggers for the
+same psi metric allows other parts of Android framework to monitor memory
+state of the device and act accordingly.
+
+The new interface is straightforward.  The user opens one of the pressure
+files for writing and writes a trigger description into the file
+descriptor that defines the stall state - some or full, and the maximum
+stall time over a given window of time.  E.g.:
+
+        /* Signal when stall time exceeds 100ms of a 1s window */
+        char trigger[] = "full 100000 1000000";
+        fd = open("/proc/pressure/memory");
+        write(fd, trigger, sizeof(trigger));
+        while (poll() >= 0) {
+                ...
+        }
+        close(fd);
+
+When the monitored stall state is entered, psi adapts its aggregation
+frequency according to what the configured time window requires in order
+to emit event signals in a timely fashion.  Once the stalling subsides,
+aggregation reverts back to normal.
+
+The trigger is associated with the open file descriptor.  To stop
+monitoring, the user only needs to close the file descriptor and the
+trigger is discarded.
+
+Patches 1-4 prepare the psi code for polling support.  Patch 5 implements
+the adaptive polling logic, the pressure growth detection optimized for
+short intervals, and hooks up write() and poll() on the pressure files.
+
+The patches were developed in collaboration with Johannes Weiner.
+
+This patch (of 5):
+
+Kernfs has a standardized poll/notification mechanism for waking all
+pollers on all fds when a filesystem node changes.  To allow polling for
+custom events, add a .poll callback that can override the default.
+
+This is in preparation for pollable cgroup pressure files which have
+per-fd trigger configurations.
+
+Link: http://lkml.kernel.org/r/20190124211518.244221-2-surenb@google.com
+Signed-off-by: Johannes Weiner <hannes@cmpxchg.org>
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+Cc: Dennis Zhou <dennis@kernel.org>
+Cc: Ingo Molnar <mingo@redhat.com>
+Cc: Jens Axboe <axboe@kernel.dk>
+Cc: Li Zefan <lizefan@huawei.com>
+Cc: Peter Zijlstra <peterz@infradead.org>
+Cc: Tejun Heo <tj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Stephen Rothwell <sfr@canb.auug.org.au>
+
+(cherry picked from commit: 147e1a97c4a0bdd43f55a582a9416bb9092563a9)
+
+Conflicts:
+        fs/kernfs/file.c
+        include/linux/kernfs.h
+
+1. replaced __poll_t with unsigned int.
+2. replaced EPOLLERR/EPOLLPRI with POLLERR/POLLPRI (values are the same)
+
+Bug: 127712811
+Test: lmkd in PSI mode
+Change-Id: Ic2bed334d05aec62f4e695f263893c3057921c55
+Signed-off-by: Suren Baghdasaryan <surenb@google.com>
+
+diff --git a/fs/kernfs/file.c b/fs/kernfs/file.c
+index d8f49c412f5..d5b3cd692b2 100644
+--- a/fs/kernfs/file.c
++++ b/fs/kernfs/file.c
+@@ -832,26 +832,35 @@ void kernfs_drain_open_files(struct kernfs_node *kn)
+  * to see if it supports poll (Neither 'poll' nor 'select' return
+  * an appropriate error code).  When in doubt, set a suitable timeout value.
+  */
++unsigned int kernfs_generic_poll(struct kernfs_open_file *of, poll_table *wait)
++{
++	struct kernfs_node *kn = kernfs_dentry_node(of->file->f_path.dentry);
++	struct kernfs_open_node *on = kn->attr.open;
++
++	poll_wait(of->file, &on->poll, wait);
++
++	if (of->event != atomic_read(&on->event))
++		return DEFAULT_POLLMASK|POLLERR|POLLPRI;
++
++	return DEFAULT_POLLMASK;
++}
++
+ static unsigned int kernfs_fop_poll(struct file *filp, poll_table *wait)
+ {
+ 	struct kernfs_open_file *of = kernfs_of(filp);
+ 	struct kernfs_node *kn = kernfs_dentry_node(filp->f_path.dentry);
+-	struct kernfs_open_node *on = kn->attr.open;
++	unsigned int ret;
+ 
+ 	if (!kernfs_get_active(kn))
+-		goto trigger;
++		return DEFAULT_POLLMASK|POLLERR|POLLPRI;
+ 
+-	poll_wait(filp, &on->poll, wait);
++	if (kn->attr.ops->poll)
++		ret = kn->attr.ops->poll(of, wait);
++	else
++		ret = kernfs_generic_poll(of, wait);
+ 
+ 	kernfs_put_active(kn);
+-
+-	if (of->event != atomic_read(&on->event))
+-		goto trigger;
+-
+-	return DEFAULT_POLLMASK;
+-
+- trigger:
+-	return DEFAULT_POLLMASK|POLLERR|POLLPRI;
++	return ret;
+ }
+ 
+ static void kernfs_notify_workfn(struct work_struct *work)
+diff --git a/include/linux/kernfs.h b/include/linux/kernfs.h
+index ab25c8b6d9e..caf4d07273b 100644
+--- a/include/linux/kernfs.h
++++ b/include/linux/kernfs.h
+@@ -24,6 +24,7 @@ struct seq_file;
+ struct vm_area_struct;
+ struct super_block;
+ struct file_system_type;
++struct poll_table_struct;
+ 
+ struct kernfs_open_node;
+ struct kernfs_iattrs;
+@@ -260,6 +261,9 @@ struct kernfs_ops {
+ 	ssize_t (*write)(struct kernfs_open_file *of, char *buf, size_t bytes,
+ 			 loff_t off);
+ 
++	unsigned int (*poll)(struct kernfs_open_file *of,
++			     struct poll_table_struct *pt);
++
+ 	int (*mmap)(struct kernfs_open_file *of, struct vm_area_struct *vma);
+ 
+ #ifdef CONFIG_DEBUG_LOCK_ALLOC
+@@ -347,6 +351,8 @@ int kernfs_remove_by_name_ns(struct kernfs_node *parent, const char *name,
+ int kernfs_rename_ns(struct kernfs_node *kn, struct kernfs_node *new_parent,
+ 		     const char *new_name, const void *new_ns);
+ int kernfs_setattr(struct kernfs_node *kn, const struct iattr *iattr);
++unsigned int kernfs_generic_poll(struct kernfs_open_file *of,
++				 struct poll_table_struct *pt);
+ void kernfs_notify(struct kernfs_node *kn);
+ 
+ const void *kernfs_super_ns(struct super_block *sb);
