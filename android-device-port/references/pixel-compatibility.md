@@ -31,3 +31,9 @@ Separate source pins/tests, SDK compilation/signing, final-image placement, Andr
 Reference implementation: [Pixel compatibility source](https://github.com/manvindar/m30s-pixel-port/tree/938a0a04c19eba3e46adbe74bd64544f523a5521/tools). Its image audit covers the exact target APKs, overlay resources/signers and startup scripts. Use its inputs as a build-specific example, not universal offsets or certificate assumptions. See [verified-upgrades.md](verified-upgrades.md) for publication and device verification.
 
 Bundled source: `scripts/m30s/pixel/make_compat_overlays.py`, `verify_compat_overlays.py`, the two overlay resource directories and SDK packaging tests. Use `scripts/m30s/img/verify_pixel_fixes.py` for final-image audit and `make_readback_manifest.py` for raw windows. The image workflow remains a repo-layout example requiring `tools/` and `tablet/`; map the documented bundle directories before use.
+
+## Upgraded-device acceptance caveat
+
+On the data-preserving M30s v0.6 upgrade, the Safety overlay reached STATE_ENABLED, verbose raw-resource lookup selected the new overlay APK and qualified title lookup succeeded. The running SafetyCenterService nevertheless exposed a parsed config without the inserted AdvancedProtection source IDs. Admission and shell lookup therefore do not prove the service consumed the intended config. Verify the actual parsed service source list; do not infer a cache cause, call the fix complete, wipe data or restart services just from this mismatch.
+
+The same upgrade verified the dated performance kernel, system/boot readback and unchanged protected/media/settings state. SystemUI and GMS stayed up during bounded startup checks with an empty crash buffer. The gesture resource resolved false, but three-button mode stayed active and human swipe gestures were not retested. Keep these acceptance levels separate.

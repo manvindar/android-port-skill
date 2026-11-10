@@ -58,3 +58,5 @@ Before multi-GB work, check physical free space. Delete only authorized, identif
 Report boot completion, stable core processes, actual kernel, overlay/resource/parser results and protected-storage readback separately. Keep three-button navigation until gestures pass. Do not translate a successful boot into tested calls, camera modes, battery gains or a crash-free daily-driver claim.
 
 Bundled authenticated baseline/profile helpers: `scripts/kernel-build/m30s-profile/`. Run tests from its `scripts/` directory with `python3 -m unittest test_kernel_label test_perf_profile`. These verify permitted config deltas; native compilation and runtime checks remain separate. The touch driver is source to integrate through its Kconfig snippet, not a prebuilt live patch.
+
+For this maintainer's future kernel builds, the published workflow uses `KBUILD_BUILD_USER="Manvindar Singh"` and host `github-actions`. Verify the actual compiled banner on the next build; existing binaries retain their original identity/checksums.

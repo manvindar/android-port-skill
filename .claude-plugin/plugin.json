@@ -1,6 +1,6 @@
 {
   "name": "android-port",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Android device porting guidance and source tools for verified builds, boot diagnosis and data-preserving upgrades.",
   "author": {
     "name": "Manvindar Singh"
