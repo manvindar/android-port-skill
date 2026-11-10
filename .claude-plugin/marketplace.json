@@ -1,0 +1,15 @@
+{
+  "name": "manvindar-android",
+  "owner": {
+    "name": "Manvindar Singh"
+  },
+  "plugins": [
+    {
+      "name": "android-port",
+      "source": "./",
+      "description": "Android device porting guidance and source tools for verified builds, boot diagnosis and data-preserving upgrades.",
+      "version": "1.1.0"
+    }
+  ],
+  "description": "Android porting skill and tools maintained by Manvindar Singh."
+}

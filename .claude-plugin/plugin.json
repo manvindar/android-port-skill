@@ -1,0 +1,20 @@
+{
+  "name": "android-port",
+  "version": "1.1.0",
+  "description": "Android device porting guidance and source tools for verified builds, boot diagnosis and data-preserving upgrades.",
+  "author": {
+    "name": "Manvindar Singh"
+  },
+  "homepage": "https://github.com/manvindar/android-port-skill",
+  "repository": "https://github.com/manvindar/android-port-skill",
+  "keywords": [
+    "android",
+    "rom",
+    "twrp",
+    "kernel",
+    "porting"
+  ],
+  "skills": [
+    "./android-device-port"
+  ]
+}
