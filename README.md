@@ -27,6 +27,39 @@ claude plugin marketplace update manvindar-android
 claude plugin update android-port@manvindar-android
 ```
 
+## Install in Codex
+
+With a Codex CLI version that supports plugins:
+
+```sh
+codex plugin marketplace add manvindar/android-port-skill
+codex plugin add android-port@manvindar-android
+```
+
+Start a new Codex session and invoke `$android-device-port`, or ask for help with an Android port. Check installation with `codex plugin list --marketplace manvindar-android`. The plugin adds skill guidance and source tools; installation does not flash a device.
+
+For Codex versions without plugin commands, use the skill installer below. Codex skill folders are also supported by the desktop app and IDE extension; the custom CLI plugin commands above were tested with Codex CLI.
+
+## Cursor, GitHub Copilot, Gemini CLI and OpenCode
+
+With Node.js/npm installed, use the [skills CLI](https://skills.sh/). Run the command from your project:
+
+```sh
+npx skills add manvindar/android-port-skill --skill android-device-port
+```
+
+Choose your agent in the installer, or select one explicitly:
+
+| Agent | Command |
+|---|---|
+| Codex | `npx skills add manvindar/android-port-skill --skill android-device-port --agent codex` |
+| Cursor | `npx skills add manvindar/android-port-skill --skill android-device-port --agent cursor` |
+| GitHub Copilot | `npx skills add manvindar/android-port-skill --skill android-device-port --agent github-copilot` |
+| Gemini CLI | `npx skills add manvindar/android-port-skill --skill android-device-port --agent gemini-cli` |
+| OpenCode | `npx skills add manvindar/android-port-skill --skill android-device-port --agent opencode` |
+
+Add `--global` for user-wide installation. The shared skill format keeps the full references/scripts folder available. Restart your agent after installation; these tools' invocation menus differ. To update a skills-CLI installation, run `npx skills update android-device-port` (add `--global` for a global install).
+
 ### Manual skill installation
 
 Clone this repository, then copy `android-device-port/` into `~/.claude/skills/` for Claude Code, or `~/.agents/skills/` for Codex. Keep the whole folder so references and scripts stay available.

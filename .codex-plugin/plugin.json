@@ -1,0 +1,17 @@
+{
+  "name": "android-port",
+  "version": "1.1.0",
+  "description": "Android device porting guidance and tools for verified builds and data-preserving upgrades.",
+  "author": {
+    "name": "Manvindar Singh"
+  },
+  "homepage": "https://github.com/manvindar/android-port-skill",
+  "repository": "https://github.com/manvindar/android-port-skill",
+  "skills": "./android-device-port",
+  "interface": {
+    "displayName": "Android Port",
+    "shortDescription": "Build, diagnose and upgrade Android ports",
+    "category": "Developer Tools",
+    "developerName": "Manvindar Singh"
+  }
+}

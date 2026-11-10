@@ -1,0 +1,20 @@
+{
+  "name": "manvindar-android",
+  "interface": {
+    "displayName": "Manvindar Android"
+  },
+  "plugins": [
+    {
+      "name": "android-port",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
