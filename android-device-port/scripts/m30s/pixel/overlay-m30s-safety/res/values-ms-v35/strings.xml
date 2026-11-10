@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="google_advanced_protection_title" formatted="false">"Perlindungan Lanjutan"</string>
+  <string name="google_advanced_protection_summary" formatted="false">"Perlindungan untuk peranti dan Google Account anda"</string>
+</resources>

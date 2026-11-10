@@ -23,7 +23,7 @@ Prefer, in this order: (1) a config option the source already supports (PSI, BPF
 
 ## 3. Build
 
-Build in CI, not on the laptop (the source tree is large, toolchains are old). `scripts/ci/build-kernel.yml` (M30s): inputs `fragment` (merge `a17.fragment`), `perf`, `boost`, `hdr`, `publish`, `tag`. Toolchains are the OEM's own (M30s: AOSP `clang-4639204` and gcc 4.9 from tag `android-9.0.0_r30`; TB-X606V: clang r353983c + gcc 4.9). The OEM source zip is a release asset of the (private) kernel repo because it exceeds git's file limit. Output: kernel `Image` + config + sha256, published as a release; mark experimental builds `--prerelease` and promote only blessed ones with `gh release edit TAG --latest` because the image build pulls the Latest release.
+Build in CI, not on the laptop (the source tree is large, toolchains are old). `scripts/ci/build-kernel.yml` (M30s): inputs `fragment` (merge `a17.fragment`), `perf`, `boost`, `hdr`, `publish`, `tag`. Toolchains are the OEM's own (M30s: AOSP `clang-4639204` and gcc 4.9 from tag `android-9.0.0_r30`; TB-X606V: clang r353983c + gcc 4.9). The OEM source zip is a release asset of the (private) kernel repo because it exceeds git's file limit. Output: kernel `Image` + config + sha256, published as a release; pin an exact reviewed kernel tag/hash in the image build. Published Release/Latest metadata does not prove runtime acceptance; never select a different kernel merely because it is Latest.
 
 Boot image: `scripts/kernel-build/repack_boot.py STOCK_boot.img Image OUT_boot.img` (header v1, no ramdisk, AVB footer kept; flash vbmeta disabled). The Samsung boot image has no ramdisk: the bootloader adds `root=/dev/sdaN`.
 
@@ -32,7 +32,7 @@ Variant name shows in Settings through `CONFIG_LOCALVERSION` in the fragment.
 ## 4. M30s kernel releases (reference)
 
 - `a17` (baseline, Latest): stock config + PSI + BPF JIT + userfaultfd.
-- `a17-perf`: `-O2`, lz4 in the crypto API (set zram `comp_algorithm=lz4` at runtime), BBR + fq, BFQ, debug options off.
+- Historical `a17-perf` candidate: `-O2`, LZ4 availability, BBR + fq, BFQ toggle and reduced debug options. LZ4 availability does not switch zram from zstd. BFQ is dormant with SCSI_MQ_DEFAULT off; do not claim a benefit without a separately reviewed storage-mode change.
 - `a17-boost`: perf + touch boost driver `boost/input_boost_m30s.c`: min frequency on both clusters for 150 ms after touch; tune at `/sys/module/input_boost_m30s/parameters/`.
 - `a17-hdr(-r2)`: panel advertises HDR10 (synthesised DSIM caps). Result: black HDR video. Do not use.
 - CPU and GPU clocks were not raised: OPP tables come from ECT/ACPM firmware and the device tree (`dtb` partition), not this source; tops are 2.314 GHz (A73) and 1.742 GHz (A53). Measured effect of Mali power policy, MIF max, GPU clock locks: none on jank.
@@ -51,3 +51,5 @@ Variant name shows in Settings through `CONFIG_LOCALVERSION` in the fragment.
 ## 7. MTK 4.9 extras
 
 Device-tree bootargs needed `cpuidle.off=1` (a NULL dereference in MediaTek MCDI idle after ~10 s) and `printk.devkmsg=on`. Also patches for `fiq_cache_init`, `ram_console` (bad `_pa` after a failed SRAM mapping: oops at 0.6 s), `disp_caps_info` vendor ABI. CPU overclock: see `lenovo-tb-x606v-mtk.md`.
+
+Read [verified-upgrades.md](verified-upgrades.md) for dated native kernel labels, generated-config dependency closure, bounded performance profiles, module checks and boot prefix/tail verification.

@@ -10,11 +10,11 @@ Field notes, scripts and patches from two real ports, each running a much newer 
 - **M30s** (Samsung SM-M307F, Exynos 9611, kernel 4.14.113, A-only, Android 11 vendor): Android 17 GSI with a Pixel 9a layer (track A, shipped) and Samsung One UI 9 from a donor firmware (track B, booted to the setup wizard and stable).
 - **TB-X606V** (Lenovo Tab M10 FHD Plus, MT8768, kernel 4.9.190, A-only, Android 10 vendor): Android 14, 16 and 17 GSIs plus a Pixel Tablet layer (MediaTek specifics).
 
-Everything is private-use engineering: no donor firmware or vendor binaries are in this skill. You rebuild them from the user's own downloads.
+This skill contains source tooling and field guidance, not firmware, vendor binaries, private logs or signing credentials. Obtain build inputs through the owner-authorized sources and verify their hashes.
 
 ## First: read the hard rules
 
-Read `references/pitfalls.md` before touching a device. The short version: never touch `/sdcard` (it is `/data/media` on the same partition), never `recovery`, modem or bootloader partitions, never invent IMEIs, keep PINs and account passwords out of every file and message, donor firmware never goes to git or CI, wipes and flashes need the owner's explicit OK.
+Read `references/pitfalls.md` before touching a device. Preserve userdata/media and unrelated recovery, modem, identity and bootloader partitions. Keep credentials and identifiers out of public artifacts. Follow the owner's authorized build, publication and flash scope; authorization persists across turns. A data wipe or format requires separate explicit scope and is not implied by an upgrade.
 
 ## Decision tree
 
@@ -26,10 +26,10 @@ Read `references/pitfalls.md` before touching a device. The short version: never
 3. **Budget size** before anything else: the system partition is fixed (M30s 4800 MiB, tablet 3.8 GiB). A GSI plus Pixel layer fits; a donor needs a debloat list (7.2 GiB to 3.9 GiB on the M30s).
 4. **Kernel** (`references/kernel.md`): list what the target Android needs that the old kernel lacks (PSI, BPF JIT, userfaultfd, LPM-trie iteration, ringbuf, `F_SEAL_FUTURE_WRITE`, `MADV_WIPEONFORK`, `close_range`, SELinux permissive). Fix by config, backport or userspace patch, in that order of preference. A real `uname` is kept; patch the call sites instead of spoofing.
 5. **Build the image offline** with the scripts in `scripts/` (debugfs on an ext4 copy, no mount, works on macOS and Linux). Apply the fixes from `references/patch-index.md` as they become necessary; each row there is symptom, cause, fix, script.
-6. **Flash and verify** (`references/flashing.md`): TWRP over adb, `dd` of the image, hash in 256 MiB windows, selective `/data` wipe that keeps `/data/media`, vendor and boot as appropriate, rollback image ready first.
+6. **Flash and verify** (`references/flashing.md`): fresh recovery identity and resolved mount/partition gates, exact image pins, bounded writes and complete readback. Existing-ROM upgrades preserve userdata unless the owner explicitly requests a wipe. Change only partitions included in the reviewed build; retain rollback material.
 7. **Diagnose the first boot from logs, not guesses** (`references/boot-diagnosis.md`). Almost every blocker in both ports was found from TWRP logs or `adb logcat -b all` captured across reboots; the loop is: read first failing line, find the cause, patch the file on the live system (`mount -o remount,rw /` during the boot window), then bake the patch into the build script and prove it with a clean flash.
 8. **Test** (`references/testing.md`): feature matrix, jank bench, per-feature checklist. Report what was measured and what needs a person.
-9. **CI** (`references/ci.md`) once the build is reproducible: GitHub Actions, private release for inputs, split and xz assets, SHA256SUMS.
+9. **CI** (`references/ci.md`) once the build is reproducible: GitHub Actions, authorized input visibility, exact source/run/tag/component pins, compressed assets, SHA256SUMS and raw window manifests. Published Release and Latest metadata are separate from device acceptance.
 
 ## Quick map of the references
 
@@ -49,6 +49,8 @@ Read `references/pitfalls.md` before touching a device. The short version: never
 | `references/testing.md` | test checklist and jank method |
 | `references/pitfalls.md` | hard rules and expensive mistakes |
 | `references/patch-index.md` | every fix: symptom, cause, fix, file |
+| `references/pixel-compatibility.md` | resource guards, distinct overlay signers, Safety Center and init/dexopt corrections |
+| `references/verified-upgrades.md` | data-preserving TWRP upgrades, exact flash transactions, component release provenance and performance validation |
 
 ## Layout of the bundled material
 
@@ -63,9 +65,9 @@ Scripts keep their original repo-relative paths in comments; the layout above mi
 
 ## Working rules for the agent
 
-- Read-only first. Probe with `adb shell` as the shell user, push nothing, until the owner agrees.
+- Read-only first; use existing owner authorization for subsequent work. Keep one phone operator and one source/CI publisher so commands and builds do not race.
 - One change per boot when diagnosing, and keep the previous state restorable.
 - Every live edit on the phone must be baked into the build script and compared (hash) with the live files before it counts.
-- Capture logs across reboots: `adb logcat -b all -v threadtime > file` in a loop with `adb wait-for-device`; the phone may reboot every minute.
+- Capture logs with bounded waits and correlate boot ID, monotonic uptime and process identity. An empty USB enumeration is a connection observation, not a boot diagnosis. See `references/boot-diagnosis.md`.
 - Free disk matters: images are 4-5 GB each; delete intermediates you can regenerate, keep the ones you cannot (a donor EROFS that took hours to fetch).
 - Report honestly: say what booted, what failed, the first failing log line, and what was not tested.

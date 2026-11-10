@@ -8,7 +8,10 @@ oat/, *.prof and fsverity metadata are left out (compiled for another boot image
 import argparse, glob, os, shutil, subprocess, sys, tempfile, zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser(); ap.add_argument('factory'); ap.add_argument('out'); ap.add_argument('--keys', default=HERE); ap.add_argument('--build-tools'); ap.add_argument('--e2fs'); ap.add_argument('--images'); ap.add_argument('--only', action='append', help='partial run, repeatable: stage just the PKGS/FILES whose destination contains this text (no DIRS, no re-signing), to add apps to an existing stage dir')
+ap.add_argument('--safety-keys', default=os.environ.get('SAFETY_KEYS'), help='directory containing the official public AOSP SafetyCenter resource test identity')
 a = ap.parse_args()
+if not a.only and not a.safety_keys:
+    ap.error('--safety-keys is required for the two M30s compatibility overlays')
 E2 = a.e2fs or next((d for d in ('/opt/homebrew/opt/e2fsprogs/sbin', '/usr/local/opt/e2fsprogs/sbin', '/sbin', '/usr/sbin') if os.path.exists(d + '/debugfs')), '')
 BT = a.build_tools or sorted(glob.glob(os.path.expanduser('~/Library/Android/sdk/build-tools/*')) + glob.glob(os.environ.get('ANDROID_HOME', '/x') + '/build-tools/*'))[-1]
 # (partition, dir in the Pixel image, destination dir under /system/<partition>/); the dir is copied whole, apk files listed in RESIGN are re-signed
@@ -133,6 +136,11 @@ try:
     if not a.only:
         subprocess.run([sys.executable, os.path.join(HERE, 'make_m30s_overlay.py'), os.path.join(out, 'product/overlay/M30sDisplayOverlay.apk'), a.keys, BT], check=True, capture_output=True)
         subprocess.run([sys.executable, os.path.join(HERE, 'make_m30s_overlay.py'), os.path.join(out, 'product/overlay/M30sWifiOverlay.apk'), a.keys, BT], check=True, capture_output=True, env=dict(os.environ, OVERLAY='overlay-m30s-wifi'))     # config_wifi5ghzSupport=true: 5 GHz hotspot
+        sdk = os.environ.get('ANDROID_HOME') or os.path.expanduser('~/Library/Android/sdk')
+        subprocess.run([sys.executable, os.path.join(HERE, 'make_compat_overlays.py'),
+                        os.path.join(out, 'product/overlay'), a.keys, a.safety_keys, BT,
+                        os.path.join(sdk, 'platforms/android-34/android.jar')], check=True)
+        os.remove(os.path.join(out, 'product/overlay/compat-overlays-receipt.json'))  # host receipt must not enter the image
         os.makedirs(os.path.join(out, 'product/app/Precompile'), exist_ok=True)    # launcher icon + Quick Settings tile that start the on-device compile job (rc/04_precompile.rc)
         subprocess.run([sys.executable, os.path.join(HERE, 'make_precompile_app.py'), os.path.join(out, 'product/app/Precompile/Precompile.apk'), a.keys, BT], check=True, capture_output=True)
         os.makedirs(os.path.join(out, 'product/app/DisplayExtras'), exist_ok=True)    # launcher icon: screen mode (mdnie) and HDR format switches

@@ -130,3 +130,14 @@ Hotspot single-channel concurrency on SLSI Wi-Fi, proximity sensor only as `com.
 ## 11. MTK-only (see lenovo-tb-x606v-mtk.md)
 
 MTK vendor codec XML (`audio/mpeg-L2` decoder aborts system_server): `tablet-mtk/vendor/fix_vendor_codecs_mp2.py`. Vendor ueventd and seccomp additions: `make_vendor_ueventd.sh`, `seccomp_add.sh`. TWRP zip for vendor edits: `tablet-mtk/twrp/`. Magisk modules, CPU overclock, ROM Tuner: `tablet-mtk/magisk/`, `tablet-mtk/kernel/`, `tablet-mtk/porting/`.
+
+## Pixel compatibility and upgrade additions
+
+| Symptom | Cause/decision | Narrow correction | Reference |
+|---|---|---|---|
+| Gesture model SIGILL | exact Pixel consumer loads unsupported model | static one-bool resource guard, target signer; retain three-button until runtime acceptance | `pixel-compatibility.md` |
+| GMS Unexpected safety source AdvancedProtection | AOSP resource config missing authenticated Pixel source | exact config/string additions with six GMS cert restrictions, distinct SafetyResources signer | `pixel-compatibility.md` |
+| init-named oneshot abort | rc expansion consumes shell loop variable | externalize script, preserve UID/domain | `pixel-compatibility.md` |
+| UI restarts after dexopt | automatic helper kills UI/launcher | remove automatic kills; explicit manual opt-in | `pixel-compatibility.md` |
+| dated perf label still absent | requested config differs from native generated/packaged/runtime kernel | exact config dependency closure, banner/repack/readback/runtime checks | `verified-upgrades.md` |
+| existing Pixel upgrade | unchanged data/vendor/recovery; new system and boot | no automatic wipe; exact two-partition transaction and complete readback | `verified-upgrades.md` |

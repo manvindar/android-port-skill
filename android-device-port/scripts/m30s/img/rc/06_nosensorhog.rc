@@ -1,7 +1,7 @@
 # GMS Personal Safety (PSAService / PersonalSafetyService / SndDetectionService) opens an accelerometer stream (SensorStreamer, 10 ms period, 5 s batching, later 100 Hz):
 # the RT SensorService thread took 10% and system_server 26-55% CPU while idle. Disabling the three services brought system_server to 10-13%.
 # pm keeps the state across reboots, but a Play services update or a data wipe resets it, so it is asserted again after every boot.
-service nosensorhog /system/bin/sh -c "sleep 30; for c in PSAService PersonalSafetyService SndDetectionService; do pm disable com.google.android.gms/com.google.android.gms.personalsafety.service.$c; done"
+service nosensorhog /system/bin/sh /system/bin/nosensorhog.sh
     user shell
     group shell
     oneshot

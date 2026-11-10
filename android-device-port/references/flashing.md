@@ -4,10 +4,10 @@ Both devices are flashed from TWRP over adb, never from the Android side. Conten
 
 ## 1. Rules
 
-- Ask the owner before flashing `system`, wiping userdata or rebooting into recovery. Approval for one flash is not approval for the next.
+- Use the current owner-authorized scope. A requested verified build-and-flash includes its necessary recovery transition and boot verification; do not ask again without a new decision. A failed attempt stops for diagnosis, not an automatic retry. Wiping userdata is separate scope.
 - Have the rollback image on the host and verified (hash) before you write anything.
 - Never write `recovery`, modem, bootloader (`bota*`, `sboot`), `efs`, `cpefs`, `persist`, `nvram`.
-- Never delete, overwrite, move or format anything under `/sdcard`, `/storage/*` or an SD card. On Samsung `/sdcard` is `/data/media` on the data partition: TWRP "Format Data" and "Wipe Data" delete it. Use the selective wipe in section 5.
+- Never delete, overwrite, move or format anything under `/sdcard`, `/storage/*` or an SD card. On Samsung `/sdcard` is `/data/media` on the data partition: Format Data erases it; do not depend on a generic wipe label to preserve it. Existing-ROM upgrades use no data wipe. Section 5 is a separate destructive procedure, not an upgrade step.
 - Back up first: `scripts/m30s/backup/dump_partitions.sh` reads each partition twice and keeps the image only if both SHA-256 agree. `adb pull` the media you care about and compare md5 against the device.
 - The Mac or CI host needs more than 10 GB free; a 4.8 GB image plus its xz is easy to overrun.
 
@@ -20,12 +20,12 @@ From Android: `adb reboot recovery` (works on both). From a hung or looping boot
 ```
 cat system.img | adb exec-in 'dd of=/dev/block/by-name/system bs=1048576'
 ```
-- `adb exec-in` is the raw-stdin variant of `adb shell`; plain `adb shell` corrupts binary stdin. TWRP's `dd` rejects `bs=4M`: give bytes (`bs=1048576`).
+- Use an explicitly non-TTY binary transport: `exec-in` where supported, or tested `adb shell -T` with separate stderr, exact byte counts and exit handling. An interactive shell is unsafe for binary data. TWRP's `dd` rejects `bs=4M`: give bytes (`bs=1048576`).
 - The image must be exactly the partition size (M30s 5033164800 bytes = 4800 MiB, 1228800 4 KiB blocks; check with `blockdev --getsize64 /dev/block/by-name/system`). `e2fsck -fn image` must be clean and `shared_blocks` removed (a GSI ext4 with `shared_blocks` is read-only).
 - A long single read through the TWRP shell is cut after about 700 MiB, so verify in 256 MiB windows (19 windows, the last one 192 MiB for 4800 MiB):
 ```
 for i in $(seq 0 18); do n=256; [ $i = 18 ] && n=192
-  adb exec-out "dd if=/dev/block/by-name/system bs=1048576 skip=$((i*256)) count=$n 2>/dev/null | sha256sum" | cut -c1-16; done
+  adb exec-out "dd if=/dev/block/by-name/system bs=1048576 skip=$((i*256)) count=$n 2>/dev/null | sha256sum"; done
 ```
 Compute the same on the host (`dd if=img bs=1048576 skip=.. count=256 | shasum -a 256`) and compare all 19.
 - Streaming without an intermediate file (host disk tight): `cat part-* | xz -dc | adb exec-in 'dd of=/dev/block/by-name/system bs=1048576'`; verify from the SHA256SUMS of the release.
@@ -47,15 +47,15 @@ adb shell 'ls -A /data; ls /data/media/0 | wc -l'      # only media (and lost+fo
 ```
 Never wipe from the Android UI or TWRP's wipe menu. This loses the user's apps, accounts, setup and enrolled fingerprints; say so in the OK request. If `userdata` was FBE and the fstab line still has `fileencryption=ice`, format is the only option and needs a separate OK.
 
-Package signature mismatches: an app whose certificate changed between builds (an overlay or metadata package signed with a per-build keystore) is rejected on top of an old `/data`. After a clean flash always do the selective wipe, or `rm -rf /data/system/package_cache /data/dalvik-cache` at minimum.
+Package signature mismatches must be diagnosed before changing data. Stable target-compatible signers support upgrades; a per-build keystore can break package identity. Do not automatically wipe app state or caches after flashing. Resolve the certificate/package mismatch within scope, or present a concrete destructive recovery choice to the owner.
 
 ## 6. First boot
 
-`adb reboot`. The first boot builds the package cache (minutes) and dexopt runs for a long time afterwards: the phone is slow until it ends (`cmd package compile -m speed -a` by hand, or the `zz_firstboot_dexopt.rc` service). If adb never appears within about 60 s the device is looping before USB: go to `boot-diagnosis.md`. The ported builds turn on `ro.adb.secure=0` and adb root so a hung system can be inspected.
+`adb reboot`. The first boot builds the package cache (minutes) and dexopt runs for a long time afterwards: the phone is slow until it ends (`cmd package compile -m speed -a` by hand, or the `zz_firstboot_dexopt.rc` service). If ADB is absent, first establish cable/USB/recovery visibility. Absence alone does not prove a loop. Use bounded monitoring and `boot-diagnosis.md` to distinguish progressing compilation from framework/kernel failure. The ported builds turn on `ro.adb.secure=0` and adb root so a hung system can be inspected.
 
 ## 7. Rollback
 
-Keep a known-good image per device (M30s: the Pixel A17 release `system-a17-pixel.img.xz.part-*` + `vendor-a17.img.xz` + `boot-a17.img` + `vbmeta-disabled.img` with `SHA256SUMS`). Rollback = write system (+ vendor, boot if they changed) as in sections 3 and 4, then the selective wipe, then confirm it boots and tell the owner. Stock firmware restore (Odin/Heimdall tar of the exact CSC/binary) is the last resort; never flash a bootloader of a different binary version (anti-rollback).
+Keep a known-good image per device (M30s: the Pixel A17 release `system-a17-pixel.img.xz.part-*` + `vendor-a17.img.xz` + `boot-a17.img` + `vbmeta-disabled.img` with `SHA256SUMS`). Rollback = write system (+ vendor, boot if they changed) as in sections 3 and 4, preserving userdata unless a separately authorized compatibility recovery requires a wipe; then confirm boot and report the result. Stock firmware restore (Odin/Heimdall tar of the exact CSC/binary) is the last resort; never flash a bootloader of a different binary version (anti-rollback).
 
 Set a debug window with the owner before the first flash of an experimental system ("if not at the home screen in two hours, roll back") and keep to it: the owner has no usable phone meanwhile.
 
@@ -65,4 +65,8 @@ Odin mode via Vol Down + Vol Up + USB cable (model dependent). `heimdall flash -
 
 ## 9. MTK tablet notes (TB-X606V)
 
-`adb reboot bootloader` then `fastboot flash system system.img`, then `fastboot format:ext4 userdata`, `fastboot erase metadata`, `fastboot erase cache`. Never flash `recovery`. `fastboot boot` does not work (root fs panic): every kernel test writes the `boot` partition, so keep the stock one (`restore_stock_boot.md` in `scripts/tablet-mtk`). TWRP backups of boot and system are in the TWRP format (`system.ext4.win000..`); restore needs TWRP Restore, vendor via `zcat vendor.img.gz | dd`. `lenovo-tb-x606v-mtk.md` has the rest.
+For an authorized first installation: `adb reboot bootloader` then `fastboot flash system system.img`. Formatting userdata or erasing metadata/cache is separate destructive scope; do not copy those steps into an upgrade. Never flash `recovery`. `fastboot boot` does not work (root fs panic): every kernel test writes the `boot` partition, so keep the stock one (`restore_stock_boot.md` in `scripts/tablet-mtk`). TWRP backups of boot and system are in the TWRP format (`system.ext4.win000..`); restore needs TWRP Restore, vendor via `zcat vendor.img.gz | dd`. `lenovo-tb-x606v-mtk.md` has the rest.
+
+## Existing-ROM upgrades
+
+Use [verified-upgrades.md](verified-upgrades.md) for the short TWRP procedure and the stricter automated flash/readback contract. Do not apply the selective wipe section to a data-preserving upgrade.

@@ -1,6 +1,6 @@
 # android-port-skill
 
-One Claude Code skill, `android-device-port`, with the notes, scripts and patches from two private ports:
+One Claude Code skill, `android-device-port`, with the notes, scripts and patches from two device ports:
 
 - Samsung Galaxy M30s (Exynos 9611, kernel 4.14, Android 11 vendor): Android 17 GSI + Pixel 9a layer (track A) and Samsung One UI 9 from a donor firmware (track B).
 - Lenovo Tab M10 FHD Plus TB-X606V (MT8768, kernel 4.9, Android 10 vendor): Android 14/16/17 GSIs + Pixel Tablet layer.
@@ -28,4 +28,4 @@ android-device-port/
 
 ## What is not here
 
-No firmware, vendor blobs, donor files, keys, device identifiers or personal data. Rebuild the inputs from your own downloads. Private repo: do not make it public without the owner's decision (it documents work on proprietary firmware).
+No firmware, vendor blobs, donor files, keys, device identifiers or personal data. Rebuild the inputs from your own downloads. Respect the owner-selected source and release visibility. Device logs, credentials and private history are excluded.

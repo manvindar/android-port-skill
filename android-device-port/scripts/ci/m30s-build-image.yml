@@ -1,27 +1,19 @@
 name: Build image
 
-# Builds the Android 17 + Pixel image for the Galaxy M30s (SM-M307F) and, with publish=true, publishes it as a PRIVATE release.
-# This repo must stay private: the image holds Google's Pixel apps and Samsung's stock vendor.
-#
-# Public inputs are downloaded here (Google GSI, LineageOS donor, crDroid A14 GSI, Pixel 9a factory image, MindTheGapps). Private inputs come from the release tagged "inputs" of this repo:
-#   vendor-mp2.img      stock vendor with the audio/mpeg-L2 codec type removed (tools/img/build_a14.sh does that from the firmware vendor.img)
-#   boot.img            stock Samsung boot image of the firmware (the kernel Image is swapped in)
-#   vbmeta-disabled.img 4 KiB vbmeta with verification disabled
-#   kernel-<tag>.Image, kernel-<tag>.SHA256SUMS   mirror of the m30s-kernel release assets, used only when the secret M30S_KERNEL_TOKEN (read access to manvindar/m30s-kernel) is not set
-# The kernel is never built here: it is the newest "kernel-*" release of manvindar/m30s-kernel (or inputs.kernel_tag).
+# Reproducible public experimental release. Input hashes are pinned below.
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: Release tag when publishing
-        default: v0.1-img
+        default: v0.6-pixel-perf
       publish:
-        description: Publish a private release with the image
+        description: Publish public flashable images as a prerelease
         type: boolean
-        default: false
+        default: true
       kernel_tag:
-        description: m30s-kernel release tag (empty = the newest kernel-* release)
-        default: ''
+        description: Reviewed dated performance kernel; older baseline kernels remain available
+        default: kernel-4.14.113-perf-20261110-profile1
       dev_tools:
         description: Build with the debug helpers (boot_watchdog, bootdiag, dbgprobe), as the image on the phone
         type: boolean
@@ -31,6 +23,7 @@ permissions:
   contents: write
 
 env:
+  INPUT_REPO: manvindar/m30s-pixel-port
   GSI_URL: https://dl.google.com/developers/android/cinnamonbun/images/gsi/aosp_arm64-exp-DP11.261016.003-16708287-d735a3b1.zip
   GSI_ZIP_SHA256: d735a3b11fe1b76a736f325f5500f7211167642fe2ed39dae0cf530d1cf51436
   DONOR_URL: https://sourceforge.net/projects/misterztr-gsi/files/LineageOS/Android%2016/LineageOS-23.2-20260524-GAPPS-EXT4-GSI.7z/download
@@ -47,6 +40,8 @@ env:
   VBMETA_SHA256: fe1f4b55088fbc97040bc898d8b076f93c93e203c8ba7a15c8348080351f4ca2
   NDK_VERSION: 26.1.10909125
   SYSTEM_BYTES: '5033164800'
+  DATED_KERNEL_SHA256: 95fa5adab53a1b8540d9ed3bd809c2f8f5dc2fc16d9fe985827b155b3215b8f1
+  DATED_BOOT_SHA256: 10b5d0e3e785d69b9ce5d32bc98da65ba0bdda9b2769214b28ceefafa7c149b7
 
 jobs:
   build:
@@ -89,11 +84,32 @@ jobs:
           echo "BT=$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
-      - name: Private inputs (release "inputs" of this repo)
+      - name: Public AOSP SafetyCenter test identity and host regressions
+        run: |
+          mkdir safety-keys
+          python3 - <<'PYKEY'
+          import base64, hashlib, urllib.request
+          from pathlib import Path
+          base = 'https://android.googlesource.com/platform/packages/modules/Permission/+/26231a7eac744c7d2a8fea4740926620f56b20c6/SafetyCenter/Resources/'
+          files = {'com.android.safetycenter.resources.pk8': '3b55e4facb4e57b742883a9a4b4adaea7920d3244d91cfc818628d301eefb2d7',
+                   'com.android.safetycenter.resources.x509.pem': 'ad4b4e29c7cb4a86efe11da1e02bf57fad641de9192b66a362ab0a023dd2afda'}
+          for name, digest in files.items():
+              data = base64.b64decode(urllib.request.urlopen(base + name + '?format=TEXT', timeout=60).read())
+              assert hashlib.sha256(data).hexdigest() == digest, name
+              Path('safety-keys', name).write_bytes(data)
+          PYKEY
+          echo "SAFETY_KEYS=$PWD/safety-keys" >> "$GITHUB_ENV"
+          export PLATFORM_KEYS="$PWD/tablet/tools/pixel" SAFETY_KEYS="$PWD/safety-keys" PLATFORM_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
+          export STARTUP_TEST_TABLET_REPO="$PWD/tablet"
+          python3 tools/img/test_startup_scripts.py
+          python3 tools/pixel/test_compat_overlays.py
+          python3 tools/img/test_readback_manifest.py
+
+      - name: Audited generic build inputs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download inputs -p vendor-mp2.img -p boot.img -p vbmeta-disabled.img
+          gh release download build-inputs-a17 -R "$INPUT_REPO" -p vendor-mp2.img -p boot.img -p vbmeta-disabled.img
           echo "$VENDOR_MP2_SHA256  vendor-mp2.img" | sha256sum -c -
           echo "$BOOT_SHA256  boot.img" | sha256sum -c -
           echo "$VBMETA_SHA256  vbmeta-disabled.img" | sha256sum -c -
@@ -116,8 +132,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # upstream asset answers HTTP 504 (2026-11-08): fall back to the mirror release of this repo (same file, same sha256 below)
-          curl -L --fail --retry 2 --retry-delay 10 -o crdroid.img.xz "$CRDROID_URL" || gh release download inputs-crdroid-10.13 -R "$GITHUB_REPOSITORY" -p crdroid.img.xz --clobber
+          curl -L --fail --retry 5 --retry-delay 10 -o crdroid.img.xz "$CRDROID_URL"
           echo "$CRDROID_SHA256  crdroid.img.xz" | sha256sum -c -
           xz -dc crdroid.img.xz > crdroid.img && rm crdroid.img.xz
           mkdir vndk30
@@ -156,26 +171,47 @@ jobs:
             --pixel-phone pixel_stage --gapps gapps/*.zip $DEV --build-tools "$BT" --out system-a17-pixel.img
           rm -rf system.img "$DONOR_IMG" pixel_stage; ls -la *.img; df -h /
 
-      - name: Kernel image from the m30s-kernel release
+      - name: Pinned reviewed kernel
         env:
           GH_TOKEN: ${{ github.token }}
-          KTOKEN: ${{ secrets.M30S_KERNEL_TOKEN }}
           KERNEL_TAG_IN: ${{ inputs.kernel_tag }}
         run: |
-          TAG="$KERNEL_TAG_IN"; mkdir kernel
-          if [ -n "$KTOKEN" ]; then
-            export GH_TOKEN="$KTOKEN"
-            [ -n "$TAG" ] || TAG=$(gh release list -R manvindar/m30s-kernel --limit 50 --json tagName,publishedAt -q '[.[]|select(.tagName|startswith("kernel-"))]|sort_by(.publishedAt)|last|.tagName')
-            gh release download "$TAG" -R manvindar/m30s-kernel -p Image -p SHA256SUMS -D kernel
-          else
-            [ -n "$TAG" ] || TAG=$(gh release view inputs --json assets -q '.assets[].name' | sed -n 's/^\(kernel-.*\)\.Image$/\1/p' | sort -V | tail -1)
-            [ -n "$TAG" ] || { echo "no kernel mirrored in the inputs release and M30S_KERNEL_TOKEN is not set"; exit 1; }
-            for f in Image SHA256SUMS; do gh release download inputs -p "$TAG.$f" -O "kernel/$f"; done
+          mkdir kernel
+          case "$KERNEL_TAG_IN" in
+            kernel-4.14.113-a17)
+              gh release download build-inputs-a17 -R "$INPUT_REPO" -p kernel-4.14.113-a17.Image -O kernel/Image
+              KERNEL_SHA=da2b6c8c5024958261e10b620c22dac593d6818d2d7221425d3164c1aae531e7
+              ;;
+            kernel-4.14.113-perf-20261110)
+              gh release download "$KERNEL_TAG_IN" -R manvindar/m30s-kernel -p Image -p kernel.config -p kernel-release.txt -p kernel-label-receipt.json -D kernel
+              echo '4e36e6f32e45cddc252687b9001dd123a423dc61cf1fb16632e9d7b5334309c5  kernel/kernel.config' | sha256sum -c -
+              echo '2055c1d2ce1ad9108fe511f975e8c1e801a3347cb2886a2b3ca69408524155d8  kernel/kernel-release.txt' | sha256sum -c -
+              echo '6ca6b7c4e0f4875b134db414ea49c0398a3fe681d830cedb094a6a7ff1182c5a  kernel/kernel-label-receipt.json' | sha256sum -c -
+              KERNEL_SHA="$DATED_KERNEL_SHA256"
+              echo 'KERNEL_SOURCE_COMMIT=e9649cc3df22823f3cc02848b0a35e6e30e6dedd' >> "$GITHUB_ENV"
+              echo 'KERNEL_ACTIONS_RUN=https://github.com/manvindar/m30s-kernel/actions/runs/42895895988' >> "$GITHUB_ENV"
+              ;;
+            kernel-4.14.113-perf-20261110-profile1)
+              gh release download "$KERNEL_TAG_IN" -R manvindar/m30s-kernel -p Image -p kernel.config -p kernel-release.txt -p kernel-label-receipt.json -D kernel
+              echo 'bca7402de04ffc2bdd281ef09e73db57af49248e244fa382ee5b8a8b98e0a6b7  kernel/kernel.config' | sha256sum -c -
+              echo '2055c1d2ce1ad9108fe511f975e8c1e801a3347cb2886a2b3ca69408524155d8  kernel/kernel-release.txt' | sha256sum -c -
+              echo '8c7e94274321ea9199c6ec85241d5731e3bd44fe78ee7eac99c57c16de523d48  kernel/kernel-label-receipt.json' | sha256sum -c -
+              KERNEL_SHA=9d02f121b11f043dca9dbdc3a7459764b7284357bc266cf2966c8fcff36d43fa
+              echo 'KERNEL_SOURCE_COMMIT=0d82b075ad8cf16d340bb2f3b787af46e2993f41' >> "$GITHUB_ENV"
+              echo 'KERNEL_ACTIONS_RUN=https://github.com/manvindar/m30s-kernel/actions/runs/42899549058' >> "$GITHUB_ENV"
+              ;;
+            *) echo "Unreviewed kernel tag" >&2; exit 1 ;;
+          esac
+          echo "$KERNEL_SHA  kernel/Image" | sha256sum -c -
+          echo "KERNEL_TAG=$KERNEL_TAG_IN" >> "$GITHUB_ENV"
+          echo "KERNEL_IMAGE_SHA256=$KERNEL_SHA" >> "$GITHUB_ENV"
+          python3 tools/img/repack_boot.py boot.img kernel/Image boot-a17.img
+          if [ "$KERNEL_TAG_IN" = kernel-4.14.113-perf-20261110 ]; then
+            echo "$DATED_BOOT_SHA256  boot-a17.img" | sha256sum -c -
           fi
-          echo "KERNEL_TAG=$TAG" >> "$GITHUB_ENV"
-          WANT=$(awk '$2=="Image"{print $1}' kernel/SHA256SUMS); echo "$WANT  kernel/Image" | sha256sum -c -
-          python3 tools/img/repack_boot.py boot.img kernel/Image boot-a17.img   # the repo's copy: the one in the baseline release is older and cannot place the larger Image before Samsung's trailer
-          sha256sum boot-a17.img
+          if [ "$KERNEL_TAG_IN" = kernel-4.14.113-perf-20261110-profile1 ]; then
+            echo 'fe4b316a93c7b45cc5f4fe3b4f25f32cde69938cae00883902aa22db0ecaaef7  boot-a17.img' | sha256sum -c -
+          fi
 
       - name: Check the images
         run: |
@@ -183,34 +219,50 @@ jobs:
           [ "$(stat -c %s vendor-a17.img)" = 629145600 ]
           e2fsck -fn system-a17-pixel.img
           e2fsck -fn vendor-a17.img
-          debugfs -R 'stat /system/etc/init/03_zram.rc' system-a17-pixel.img | head -1
+          for component in /system/etc/init/03_zram.rc /system/product/app/WebViewGoogle/WebViewGoogle.apk /system/system_ext/priv-app/NexusLauncherRelease/NexusLauncherRelease.apk /system/product/overlay/M30sGestureOverlay.apk /system/product/overlay/M30sSafetyOverlay.apk /system/bin/nosensorhog.sh; do
+            debugfs -R "stat $component" system-a17-pixel.img 2>/dev/null | grep -q '^Inode:'
+          done
           [ "$(debugfs -R 'cat /system/etc/selinux/plat_sepolicy.cil' system-a17-pixel.img | grep -c m30s_allall)" = 0 ]
-          debugfs -R 'stat /system/product/app/WebViewGoogle/WebViewGoogle.apk' system-a17-pixel.img | head -1
-          debugfs -R 'stat /system/system_ext/priv-app/NexusLauncherRelease/NexusLauncherRelease.apk' system-a17-pixel.img | head -1
+          python3 tools/img/verify_pixel_fixes.py system-a17-pixel.img "$BT" image-fixes-verification.json
 
       - name: Compress, split, checksums
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           mkdir out
+          python3 tools/img/make_readback_manifest.py system-a17-pixel.img out/system-readback-manifest.json
           xz -T0 -6 -c system-a17-pixel.img | split -b 1900M -d -a 2 - out/system-a17-pixel.img.xz.part-
           xz -T0 -6 -c vendor-a17.img > out/vendor-a17.img.xz
           cp boot-a17.img vbmeta-disabled.img out/
-          { echo "$(sha256sum system-a17-pixel.img | cut -d' ' -f1)  system-a17-pixel.img   (image, after joining the parts)";
-            echo "$(sha256sum vendor-a17.img | cut -d' ' -f1)  vendor-a17.img   (image, after xz -d)";
-            echo "$(sha256sum kernel/Image | cut -d' ' -f1)  kernel Image ($KERNEL_TAG)"; } > image-hashes.txt
-          cat image-hashes.txt
+          sha256sum system-a17-pixel.img vendor-a17.img boot-a17.img vbmeta-disabled.img > out/IMAGE-SHA256SUMS
+          sed -e "s|@COMMIT@|$GITHUB_SHA|g" -e "s|@KERNEL_TAG@|$KERNEL_TAG|g" docs/FLASH.md > out/FLASH.md
+          cp docs/RELEASE-NOTES.md out/RELEASE-NOTES.md
+          cp image-fixes-verification.json out/
+          if [ -f kernel/kernel-label-receipt.json ]; then
+            cp kernel/kernel-label-receipt.json kernel/kernel-release.txt kernel/kernel.config out/
+          fi
+          python3 - <<'PYRECEIPT'
+          import json, os
+          from pathlib import Path
+          Path('out/build-receipt.json').write_text(json.dumps({
+              'source_commit': os.environ['GITHUB_SHA'],
+              'actions_run': os.environ['GITHUB_SERVER_URL']+'/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'],
+              'kernel': os.environ['KERNEL_TAG'],
+              'kernel_image_sha256': os.environ['KERNEL_IMAGE_SHA256'],
+              'kernel_source_commit': os.environ.get('KERNEL_SOURCE_COMMIT'),
+              'kernel_actions_run': os.environ.get('KERNEL_ACTIONS_RUN'),
+              'system_bytes': 5033164800, 'vendor_bytes': 629145600,
+              'validation': ['e2fsck -fn system and vendor', 'image sizes', 'pinned input SHA256', 'startup host regressions', 'compiled overlay signing and resource scope', 'final image overlay target signers and startup bytes'],
+              'device_validation': 'This exact CI build has not been flashed or boot-tested.'
+          }, indent=2)+'\n')
+          PYRECEIPT
           ( cd out && sha256sum * > SHA256SUMS )
-          cat image-hashes.txt >> out/SHA256SUMS
-          sed -e "s|@COMMIT@|${GITHUB_SHA::8}|g" -e "s|@KERNEL_TAG@|$KERNEL_TAG|g" docs/FLASH.md > out/FLASH.md
           ls -la out
 
-      - name: Publish private release
+      - name: Publish public experimental release
         if: ${{ inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" out/* --clobber
-          else
-            gh release create "$TAG" out/* --prerelease --title "M30s Android 17 Pixel image ($TAG), kernel $KERNEL_TAG" --notes-file out/FLASH.md
-          fi
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" out/* --target "$GITHUB_SHA" --prerelease --title "Galaxy M30s Android 17 Pixel experimental ($TAG)" --notes-file out/RELEASE-NOTES.md

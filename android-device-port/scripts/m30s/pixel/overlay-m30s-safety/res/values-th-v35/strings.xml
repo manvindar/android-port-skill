@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="google_advanced_protection_title" formatted="false">"การปกป้องขั้นสูง"</string>
+  <string name="google_advanced_protection_summary" formatted="false">"การปกป้องอุปกรณ์และบัญชี Google ของคุณ"</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="google_advanced_protection_title" formatted="false">"Bảo vệ nâng cao"</string>
+  <string name="google_advanced_protection_summary" formatted="false">"Bảo vệ thiết bị và Tài khoản Google của bạn"</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="google_advanced_protection_title" formatted="false">"Protección avanzada"</string>
+  <string name="google_advanced_protection_summary" formatted="false">"Protección para o teu dispositivo e a Conta de Google"</string>
+</resources>

@@ -39,7 +39,7 @@ Take from the factory image: SystemUIGoogle (installed as SystemUI), SettingsGoo
 - `.apk.gz` files: gunzip. WebViewGoogle is arm64-only with `multiArch`: `unset_multiarch.py` clears it, else PackageManager refuses it on a phone that also supports armeabi-v7a.
 - Privileged apps need entries in the privapp allowlists; check every staged priv-app against the allowlists offline first: a missing entry hangs the boot on the animation (`tools/pixel/privapp-permissions-pixelphone-a17.xml`).
 - Delete the face feature xml (no face HAL) and disable GMS Personal Safety sensor streaming (`m30s/img/rc/06_nosensorhog.rc`).
-- Pixel back-gesture TFLite model SIGILLs on Exynos 9611: `05_gesture.rc` sets `use_back_gesture_ml_model false` at every boot.
+- Pixel back-gesture TFLite model SIGILLs on Exynos 9611: the old `05_gesture.rc` flag is only a fallback. The exact consumer-resource guard is the durable source correction; see `pixel-compatibility.md`.
 - Display overlay (`overlay-m30s`) for corner radius and cutout; hotspot overlay (`overlay-m30s-wifi`), see `m30s-quirks.md`.
 - Without the Pixel layer `02_webview.rc` picks the system WebView.
 
@@ -51,8 +51,8 @@ Take from the factory image: SystemUIGoogle (installed as SystemUI), SettingsGoo
 
 ## 5. First boot and dexopt
 
-Offline builds cannot produce oat files. `zz_firstboot_dexopt.rc` runs pass 1 about 60 s after boot and pass 2 about 45 min later; `pm.dexopt.install=speed`. Expect an hour of slowness. Known non-fatal noise: fs-verity ENOTTY, no memevents ringbuffer, no power.stats HAL, `/efs/FactoryApp/cisd_*`, GMS safety-center `Unexpected safety source: AdvancedProtection`.
+Offline builds cannot produce oat files. `zz_firstboot_dexopt.rc` runs pass 1 about 60 s after boot and pass 2 about 45 min later; `pm.dexopt.install=speed`. Expect an hour of slowness. Known non-fatal noise: fs-verity ENOTTY, no memevents ringbuffer, no power.stats HAL, `/efs/FactoryApp/cisd_*`. Track GMS `Unexpected safety source: AdvancedProtection` as a separate app crash with an authenticated configuration correction; see `pixel-compatibility.md`.
 
 ## 6. Known gaps and results
 
-Measured results are in `testing.md` and `m30s-quirks.md`: launcher janky 14-16 % (Pixel 9a launcher on 3 Mali-G72 cores), shade 15-19 %; no vibrator shim in the first image (add `tablet-mtk/vibrator`); IMS/VoLTE absent (`telephony.ims` declared, no implementation); the image contains Google's apps and Samsung's vendor, so it is private only.
+Measured results are in `testing.md` and `m30s-quirks.md`: launcher janky 14-16 % (Pixel 9a launcher on 3 Mali-G72 cores), shade 15-19 %; no vibrator shim in the first image (add `tablet-mtk/vibrator`); IMS/VoLTE absent (`telephony.ims` declared, no implementation); honor owner-selected artifact visibility, with sanitized source and explicit component provenance.

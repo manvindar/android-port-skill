@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+  <string name="google_advanced_protection_title" formatted="false">"Rozšírená ochrana"</string>
+  <string name="google_advanced_protection_summary" formatted="false">"Ochrana vášho zariadenia a účtu Google"</string>
+</resources>

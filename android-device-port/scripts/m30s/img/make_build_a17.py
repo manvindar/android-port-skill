@@ -68,6 +68,7 @@ put(os.path.join(HERE, 'rc', '03_zram.rc'), '/system/etc/init/03_zram.rc', '644'
 put(os.path.join(HERE, 'rc', '04_precompile.rc'), '/system/etc/init/04_precompile.rc', '644')    # the Precompile apps icon/tile starts it
 put(os.path.join(HERE, 'rc', '05_gesture.rc'), '/system/etc/init/05_gesture.rc', '644')    # no ML back gesture: its TFLite lib is SIGILL on the Exynos 9611, SystemUI would crash-loop in gesture navigation
 put(os.path.join(HERE, 'rc', '06_nosensorhog.rc'), '/system/etc/init/06_nosensorhog.rc', '644')    # GMS Personal Safety streamed the accelerometer at 100 Hz: system_server 26-55% CPU idle (docs/PERF.md)
+put(os.path.join(HERE, 'scripts', 'nosensorhog.sh'), '/system/bin/nosensorhog.sh', '755')
 if exists(S, '/system/product/etc/permissions/android.hardware.biometrics.face.xml'): cmds.append('rm /system/product/etc/permissions/android.hardware.biometrics.face.xml')    # face feature without a HAL: BiometricService spun on IVirtualHal (4 log lines/s)
 """ + s[i:]
 
@@ -76,6 +77,10 @@ sub("py('bpf/patch_binaries.py', 'netbpfload', nb, wp('netbpfload.a17'))",
     "py('bpf/patch_binaries.py', 'netbpfload', nb, wp('netbpfload.pre')); shutil.copyfile(wp('netbpfload.pre'), wp('netbpfload.a17'))")
 sub("zigcc(os.path.join(TOOLS, 'bpf', 'netbpfload_tracer.c'), wp('tracer')); zigcc(os.path.join(TOOLS, 'lmkd', 'lmkd_inkernel.c'), wp('lmkd'))",
     "shutil.copy(os.path.join(a.a14fs, 'tracer'), wp('tracer')); shutil.copy(os.path.join(a.a14fs, 'lmkd'), wp('lmkd'))")
+
+# Local startup helper: automatic compilation must not restart the visible UI.
+sub("put(os.path.join(TOOLS, 'scripts', 'dexopt_all.sh'), '/system/bin/dexopt_all.sh', '755')",
+    "put(os.path.join(HERE, 'scripts', 'dexopt_all.sh'), '/system/bin/dexopt_all.sh', '755')")
 
 # Pixel phone layer (tools/pixel/stage_pixel_phone.py) -----------------------------------------------------------------------------
 sub("ap.add_argument('--pixel-launcher-apk',", "ap.add_argument('--pixel-phone', help='directory made by tools/pixel/stage_pixel_phone.py (Pixel 9a SystemUI, Settings, launcher, Google apps, Chrome + WebView, overlays of the matching Android 17 build)')\nap.add_argument('--pixel-launcher-apk',")

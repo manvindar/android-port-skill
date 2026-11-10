@@ -264,6 +264,7 @@ put(os.path.join(HERE, 'rc', '03_zram.rc'), '/system/etc/init/03_zram.rc', '644'
 put(os.path.join(HERE, 'rc', '04_precompile.rc'), '/system/etc/init/04_precompile.rc', '644')    # the Precompile apps icon/tile starts it
 put(os.path.join(HERE, 'rc', '05_gesture.rc'), '/system/etc/init/05_gesture.rc', '644')    # no ML back gesture: its TFLite lib is SIGILL on the Exynos 9611, SystemUI would crash-loop in gesture navigation
 put(os.path.join(HERE, 'rc', '06_nosensorhog.rc'), '/system/etc/init/06_nosensorhog.rc', '644')    # GMS Personal Safety streamed the accelerometer at 100 Hz: system_server 26-55% CPU idle (docs/PERF.md)
+put(os.path.join(HERE, 'scripts', 'nosensorhog.sh'), '/system/bin/nosensorhog.sh', '755')
 if exists(S, '/system/product/etc/permissions/android.hardware.biometrics.face.xml'): cmds.append('rm /system/product/etc/permissions/android.hardware.biometrics.face.xml')    # face feature without a HAL: BiometricService spun on IVirtualHal (4 log lines/s)
 # 5 virt apex ------------------------------------------------------------------------------------------------------------
 print('5 virt apex (EROFS -> ext4)')
@@ -299,7 +300,7 @@ def netd(i, o): py('bpf/btfmaps.py', i, '--patch', wp('netd.btf.o')); py('bpf/pa
 bpf_file('netd.o', T, '/etc/bpf/mainline/netd.o', netd, '644', SYS)
 for rc in ('bpf/00_bpf_bind.rc', 'bpf/00_aee_off.rc', 'zz_a17_rt.rc'): put(os.path.join(TOOLS, rc), '/system/etc/init/' + os.path.basename(rc), '644')
 # compiles the apps in speed mode by itself after a data wipe (CI images carry no compiled code); skips what is already compiled
-put(os.path.join(TOOLS, 'firstboot', 'firstboot_dexopt.sh'), '/system/bin/firstboot_dexopt.sh', '755'); put(os.path.join(TOOLS, 'scripts', 'dexopt_all.sh'), '/system/bin/dexopt_all.sh', '755')
+put(os.path.join(TOOLS, 'firstboot', 'firstboot_dexopt.sh'), '/system/bin/firstboot_dexopt.sh', '755'); put(os.path.join(HERE, 'scripts', 'dexopt_all.sh'), '/system/bin/dexopt_all.sh', '755')
 put(os.path.join(TOOLS, 'firstboot', 'zz_firstboot_dexopt.rc'), '/system/etc/init/zz_firstboot_dexopt.rc', '644')
 put(os.path.join(TOOLS, 'firstboot', 'odex_bind.sh'), '/system/bin/odex_bind.sh', '755'); put(os.path.join(TOOLS, 'firstboot', 'zz_odex_bind.rc'), '/system/etc/init/zz_odex_bind.rc', '644')
 rc = cat(S, '/system/etc/init/netbpfload.rc').decode(); assert 'reboot_on_failure reboot,netbpfload-missing' in rc

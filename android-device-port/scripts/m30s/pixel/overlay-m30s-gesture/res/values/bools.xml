@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Exynos 9611 cannot execute this Pixel build's TFLite JNI path. -->
+    <bool name="config_useBackGestureML">false</bool>
+</resources>

@@ -1,6 +1,6 @@
 # "Precompile apps": the launcher icon / Quick Settings tile of org.m30s.precompile sets sys.m30s.precompile=1; this compiles every app that is not compiled yet
-# (dexopt_all.sh with DEXOPT_FORCE empty, as the first-boot job does; it restarts SystemUI and the launcher once). Log: /data/local/tmp/dexopt.log
-service precompile /system/bin/sh -c "DEXOPT_FORCE= sh /system/bin/dexopt_all.sh >> /data/local/tmp/dexopt.log 2>&1"
+# The explicit manual request may restart SystemUI and the launcher once; automatic first-boot compilation does not. Log: /data/local/tmp/dexopt.log
+service precompile /system/bin/sh -c "DEXOPT_FORCE= DEXOPT_RESTART_UI=1 sh /system/bin/dexopt_all.sh >> /data/local/tmp/dexopt.log 2>&1"
     user root
     group root
     seclabel u:r:init:s0

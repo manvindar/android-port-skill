@@ -4,14 +4,14 @@ The laptop is too small for kernels and 4.8 GB images, and a reproducible CI bui
 
 ## 1. Repos and visibility
 
-Everything is a **private** repo: the image contains Google's apps and the OEM's stock vendor; the kernel repo holds OEM GPL source (private unless the owner decides otherwise). Making a repo or release public needs the owner's explicit OK. Separate repos: image/port repo (`tools/`, `docs/`, workflow), kernel repo (patches, configs, workflow, source zip as a release asset), and an optional mirror of One UI work (tools and docs only).
+Use the owner-selected public/private visibility and existing publication authorization. Keep source publication sanitized and separate from authorized binary inputs; never push historical private history or device logs. Separate repos: image/port repo (`tools/`, `docs/`, workflow), kernel repo (patches, configs, workflow, source zip as a release asset), and an optional mirror of One UI work (tools and docs only).
 
 ## 2. Inputs
 
 - **Public inputs** are downloaded in the workflow with pinned SHA-256: Google GSI zip, LineageOS GSI donor (`.7z`), crDroid A14 GSI, Pixel factory zip, MindTheGapps, AOSP prebuilt toolchains (clang/gcc tag `android-9.0.0_r30` for Samsung's 4.14 Makefile).
 - **Private inputs** live in a release tagged `inputs` of the repo: `vendor-mp2.img` (stock vendor with the MP2 codec type removed), `boot.img` (stock boot), `vbmeta-disabled.img`, optional kernel mirror. Verify each with `sha256sum -c`.
-- **Mirror fallback**: upstream hosts fail (crDroid GitHub release returned 504): the workflow falls back to a copy in an `inputs-<name>` release. Same for the kernel: use the newest `kernel-*` release of the kernel repo, read with a token secret when the repo is private (`M30S_KERNEL_TOKEN`), else the mirrored `kernel-<tag>.Image` in `inputs`.
-- **Never** put donor firmware (Samsung A26 AP, `super`, EROFS) in CI or git. The One UI image is built locally.
+- **Mirror fallback**: upstream hosts fail (crDroid GitHub release returned 504): the workflow falls back to a copy in an `inputs-<name>` release. Same for the kernel: use the exact reviewed kernel tag and Image hash of the kernel repo, read with a token secret when the repo is private (`M30S_KERNEL_TOKEN`), else the mirrored `kernel-<tag>.Image` in `inputs`.
+- Keep donor/binary inputs out of the source tree. Their download, storage and CI use follow the owner-authorized input scope and pinned hashes. The documented One UI pipeline is local; do not silently move it to CI.
 
 ## 3. Image workflow
 
@@ -25,15 +25,17 @@ Use the latest major action versions (look up the tags before writing a workflow
 
 ## 5. Releases
 
-- Experimental builds are **prereleases**. The image workflow pulls the newest release named `kernel-*` that is marked Latest: promote only blessed builds with `gh release edit TAG --latest`.
+- Experimental builds are **prereleases**. Pin the reviewed kernel tag/hash in the image workflow. Promote visibility only within owner scope; Latest is not kernel selection or acceptance proof.
 - Tags are explicit: **never dispatch without `-f tag=...`** (the default tag would overwrite or collide). `gh workflow run build-image.yml -f tag=v0.3g-img -f publish=true`.
 - `gh run watch`, then `gh release view TAG --json assets`: check every asset and the `SHA256SUMS` file exists before telling the owner.
 - Hash the joined image from the parts locally and compare with the line in `SHA256SUMS` before flashing.
 
 ## 6. Rules
 
-Pin SHA-256 for every download; `timeout-minutes: 240` for the image; cache toolchains and ccache for the kernel; no secrets printed; secrets only as `${{ secrets.NAME }}`; do not push donor-derived files; keep `GH_TOKEN` scopes minimal; mirror fragile upstreams.
+Pin SHA-256 for every download; `timeout-minutes: 240` for the image; cache toolchains and ccache for the kernel; no secrets printed; secrets only as `${{ secrets.NAME }}`; do not push private logs, identifiers or unauthorized binary inputs; keep `GH_TOKEN` scopes minimal; mirror fragile upstreams.
 
 ## 7. What CI cannot do
 
 Compiled app code (oat/odex) cannot be produced offline: dexopt runs on the phone (first-boot services). The device cannot be tested in CI: flash and feature tests are manual (`testing.md`). The One UI image needs donor firmware and is therefore built on the maintainer's machine; CI only builds the Pixel track and the kernel.
+
+For exact component reuse, raw window manifests, real SDK fixtures, owner authorship and published Release/Latest checks, read [verified-upgrades.md](verified-upgrades.md). Latest is metadata, not proof of runtime acceptance.
