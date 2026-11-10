@@ -36,7 +36,7 @@ codex plugin marketplace add manvindar/android-port-skill
 codex plugin add android-port@manvindar-android
 ```
 
-Start a new Codex session and invoke `$android-device-port`, or ask for help with an Android port. Check installation with `codex plugin list --marketplace manvindar-android`. The plugin adds skill guidance and source tools; installation does not flash a device.
+Start a new Codex session and invoke `$android-port:android-device-port`, or ask for help with an Android port. Check installation with `codex plugin list --marketplace manvindar-android`. The plugin adds skill guidance and source tools; installation does not flash a device.
 
 For Codex versions without plugin commands, use the skill installer below. Codex skill folders are also supported by the desktop app and IDE extension; the custom CLI plugin commands above were tested with Codex CLI.
 
